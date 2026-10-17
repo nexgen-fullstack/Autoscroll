@@ -30,7 +30,22 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var pillLabel: TextView? = null
     private var speed = Prefs.speed(s)
 
+    /** Червоний ✕: закрити все повністю, доки людина знову не відкриє додаток «Автоскрол». */
+    fun shutdown() {
+        Prefs.setActive(s, false)
+        collapseScale(false); hideMenu(); stopAll()
+        hideButton(); hideWatcher()
+    }
+
+    /** Додаток відкрили знову — повертаємо кнопку і жести. */
+    fun wake() {
+        Prefs.setActive(s, true)
+        refreshButton()
+        if (pill == null && menu == null && expanded == null) ensureWatcher()
+    }
+
     fun toggle() {
+        if (!Prefs.active(s)) return
         when {
             menu != null -> hideMenu()
             scroller.running || pill != null -> { handler.removeCallbacks(resume); scroller.stop(); hideWatcher(); showMenu() }
@@ -54,7 +69,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var btnTaps = 0
     private var btnTouchAt = 0L
 
-    fun refreshButton() { if (Prefs.buttonOn(s)) showButton() else { hideButton(); collapseScale(false) } }
+    fun refreshButton() { if (Prefs.buttonOn(s) && Prefs.active(s)) showButton() else { hideButton(); collapseScale(false) } }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showButton() {
@@ -118,6 +133,14 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         row.addView(dirBtn("▲ ВГОРУ", false), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(dp(6), 0, dp(6), 0) })
         row.addView(dirBtn("▼ ВНИЗ", true), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(dp(6), 0, dp(6), 0) })
         box.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
+
+        // червоний ✕ — закрити автоскрол повністю (повернути — відкрити додаток «Автоскрол»)
+        val closeAll = text("✕  Закрити Автоскрол повністю", 14f, Color.WHITE, true).apply {
+            background = round(0xFFE5393B.toInt(), dp(22).toFloat())
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+            setOnClickListener { shutdown() }
+        }
+        box.addView(closeAll, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { gravity = Gravity.CENTER; topMargin = dp(12) })
         val p = params(MATCH_PARENT, WRAP_CONTENT, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN).apply {
             gravity = Gravity.CENTER; horizontalMargin = 0.02f
         }
@@ -453,7 +476,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     @SuppressLint("ClickableViewAccessibility")
     private fun ensureWatcher() {
-        if (watcher != null) return
+        if (watcher != null || !Prefs.active(s)) return
         val v = View(s).apply {
             setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) {

@@ -31,6 +31,7 @@ class AutoScrollService : AccessibilityService() {
     }
 
     fun refreshButton() { if (::overlay.isInitialized) overlay.refreshButton() }
+    fun wake() { if (::overlay.isInitialized) overlay.wake() }
 
     fun toggle() { if (::overlay.isInitialized) overlay.toggle() }
 
@@ -39,6 +40,7 @@ class AutoScrollService : AccessibilityService() {
         val now = SystemClock.uptimeMillis()
         val isUp = e.keyCode == KeyEvent.KEYCODE_VOLUME_UP
         if (!isUp && e.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        if (!Prefs.active(this)) return false
 
         if (e.action == KeyEvent.ACTION_DOWN) {
             if (e.repeatCount > 0) return if (isUp) upEaten else dnEaten

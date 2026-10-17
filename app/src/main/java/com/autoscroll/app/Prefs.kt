@@ -14,6 +14,10 @@ object Prefs {
     fun baseDp(c: Context) = c.getSharedPreferences(FILE, 0).getInt("base", 120)
     fun setBaseDp(c: Context, v: Int) = c.getSharedPreferences(FILE, 0).edit().putInt("base", v).apply()
 
+    /** false — закрито червоним ✕: нічого не показується і не реагує, поки не відкриють додаток */
+    fun active(c: Context) = c.getSharedPreferences(FILE, 0).getBoolean("active", true)
+    fun setActive(c: Context, v: Boolean) = c.getSharedPreferences(FILE, 0).edit().putBoolean("active", v).apply()
+
     /** Напівпрозора кнопка на екрані */
     fun buttonOn(c: Context) = c.getSharedPreferences(FILE, 0).getBoolean("btn", true)
     fun setButtonOn(c: Context, v: Boolean) = c.getSharedPreferences(FILE, 0).edit().putBoolean("btn", v).apply()
