@@ -1,4 +1,4 @@
-package com.autoscroll.app
+﻿package com.autoscroll.app
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -10,7 +10,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 
-/** Горизонтальна шкала 0,25…2,50 з поділками по 0,25. Значення — будь-яке з кроком 0,01. */
+/** Горизонтальна шкала 0,25…1,75 з поділками по 0,25. Значення — будь-яке з кроком 0,01. */
 class SpeedScaleView(context: Context) : View(context) {
     var value = 1f
         set(v) { field = Prefs.clamp(v); invalidate() }
@@ -88,3 +88,4 @@ class SpeedScaleView(context: Context) : View(context) {
 
     companion object { const val ACCENT = 0xFF7CF5C4.toInt() }
 }
+

@@ -1,4 +1,4 @@
-package com.autoscroll.app
+﻿package com.autoscroll.app
 
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
@@ -66,3 +66,7 @@ class AutoScrollService : AccessibilityService() {
         super.onDestroy()
     }
 }
+
+
+
+

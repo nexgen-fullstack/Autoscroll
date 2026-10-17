@@ -1,4 +1,4 @@
-package com.autoscroll.app
+﻿package com.autoscroll.app
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
@@ -32,12 +32,12 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     fun toggle() {
         when {
             menu != null -> hideMenu()
-            scroller.running -> { scroller.stop(); showMenu() }
+            scroller.running || pill != null -> { handler.removeCallbacks(resume); scroller.stop(); showMenu() }
             else -> showMenu()
         }
     }
 
-    fun destroy() { scroller.stop(); hideMenu(); hidePill() }
+    fun destroy() { stopAll(); hideMenu() }
 
     private fun params(w: Int, h: Int, flags: Int) = WindowManager.LayoutParams(
         w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
@@ -86,7 +86,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             background = round(0x22FFFFFF, dp(30).toFloat(), 0x447CF5C4)
             setPadding(dp(22), dp(6), dp(22), dp(6))
         }
-        val hint = text("торкніться, щоб змінити", 10.5f, 0x88FFFFFF.toInt())
+        val hint = text("змінити швидкість", 11f, 0x88FFFFFF.toInt())
         val speedBox = LinearLayout(s).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             addView(speedBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
@@ -174,15 +174,83 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private fun startScroll(down: Boolean) {
         hideMenu()
         Prefs.setSpeed(s, speed)
+        scrollDown = down
+        showShields()
         showPill(down)
         // невелика пауза, щоб вікно меню встигло зникнути
-        handler.postDelayed({ scroller.start(down, speed) }, 250)
+        handler.postDelayed(resume, 250)
+    }
+
+    // ---------------- Невидимий шар, що ловить дотики під час скролу ----------------
+    // Шар закриває весь екран, крім вузької смужки, якою гортає «віртуальний палець».
+    private val shields = mutableListOf<View>()
+    private var scrollDown = true
+    private var downAt = 0L
+    private var lastTapUp = 0L
+    private val resume = Runnable { scroller.start(scrollDown, speed) }
+
+    private companion object {
+        const val TAP_MAX = 250L        // довше — це утримання
+        const val DOUBLE_TAP = 350L     // проміжок між двома тапами
+        const val TAP_PAUSE = 1800L     // пауза після одного тапу
+        const val HOLD_RESUME = 150L    // продовжити після відпускання
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun onShieldTouch(e: MotionEvent): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                handler.removeCallbacks(resume)
+                scroller.stop()
+                if (now - lastTapUp < DOUBLE_TAP) { lastTapUp = 0; stopAll(); return true }
+                downAt = now
+            }
+            MotionEvent.ACTION_UP -> {
+                if (now - downAt < TAP_MAX) {
+                    lastTapUp = now
+                    handler.postDelayed(resume, TAP_PAUSE)
+                } else {
+                    lastTapUp = 0
+                    handler.postDelayed(resume, HOLD_RESUME)
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> handler.postDelayed(resume, HOLD_RESUME)
+        }
+        return true
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showShields() {
+        hideShields()
+        val w = s.resources.displayMetrics.widthPixels
+        val cx = (w * Scroller.X_FRACTION).toInt()
+        val gap = dp(6)
+        listOf(0 to cx - gap, cx + gap to w).forEach { (from, to) ->
+            val v = View(s).apply { setOnTouchListener { _, e -> onShieldTouch(e) } }
+            val p = params(to - from, MATCH_PARENT,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS).apply {
+                gravity = Gravity.TOP or Gravity.START; x = from; y = 0
+            }
+            wm.addView(v, p); shields += v
+        }
+    }
+
+    private fun hideShields() {
+        shields.forEach { runCatching { wm.removeView(it) } }
+        shields.clear()
+    }
+
+    private fun stopAll() {
+        handler.removeCallbacks(resume)
+        scroller.stop(); hidePill()
     }
 
     // ---------------- Пігулка під час скролу ----------------
     @SuppressLint("ClickableViewAccessibility")
     private fun showPill(down: Boolean) {
-        hidePill()
+        pill?.let { runCatching { wm.removeView(it) } }; pill = null
         val box = LinearLayout(s).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             background = round(0xE61A1D23.toInt(), dp(24).toFloat(), 0x557CF5C4)
@@ -193,7 +261,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         val stop = text("■", 16f, Color.WHITE).apply {
             background = round(0x33FFFFFF, dp(18).toFloat())
             setPadding(dp(12), dp(4), dp(12), dp(4))
-            setOnClickListener { scroller.stop(); hidePill() }
+            setOnClickListener { stopAll() }
         }
         box.addView(label)
         box.addView(stop, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { leftMargin = dp(10) })
@@ -212,7 +280,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     if (Math.abs(dy) > dp(6)) moved = true
                     if (moved) { p.y = (startPY + dy).coerceAtLeast(0); runCatching { wm.updateViewLayout(box, p) } }
                 }
-                MotionEvent.ACTION_UP -> if (!moved) { scroller.stop(); showMenu() }
+                MotionEvent.ACTION_UP -> if (!moved) { handler.removeCallbacks(resume); scroller.stop(); showMenu() }
             }
             true
         }
@@ -221,7 +289,12 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun hidePill() {
+        hideShields()
         pill?.let { runCatching { wm.removeView(it) } }
         pill = null
     }
 }
+
+
+
+
