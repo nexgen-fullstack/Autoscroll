@@ -71,7 +71,6 @@ class AutoScrollService : AccessibilityService() {
         // а не на кожне вікно всередині програми — інакше перший тап «губиться»
         if (pkg != lastPkg || pkg == "com.android.systemui" || isLauncher(pkg)) overlay.resetTaps()
         lastPkg = pkg
-        if (pkg != "com.android.systemui") overlay.onAppChanged(pkg)
     }
     private var lastPkg = ""
     private val launchers by lazy {

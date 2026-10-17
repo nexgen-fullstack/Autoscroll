@@ -80,9 +80,9 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     @SuppressLint("ClickableViewAccessibility")
     private fun showButton() {
         if (button != null || expanded != null) return
-        val v = text("⇅ " + Prefs.fmt(Prefs.speed(s)), 14f, SpeedScaleView.ACCENT, true).apply {
-            background = round(0xFF1A1D23.toInt(), dp(20).toFloat(), SpeedScaleView.ACCENT)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+        val v = text("⇅ " + Prefs.fmt(Prefs.speed(s)), 10.5f, SpeedScaleView.ACCENT, true).apply {
+            background = round(0xFF1A1D23.toInt(), dp(14).toFloat(), SpeedScaleView.ACCENT)
+            setPadding(dp(7), dp(3), dp(7), dp(3))
             alpha = 0.35f
         }
         val (sx, sy) = Prefs.buttonPos(s)
@@ -176,49 +176,33 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         val box = LinearLayout(s).apply {
             orientation = LinearLayout.VERTICAL
             background = round(0xF7121418.toInt(), dp(20).toFloat(), 0x447CF5C4)
-            setPadding(dp(8), dp(6), dp(8), dp(10))
+            setPadding(dp(8), dp(8), dp(8), dp(2))
             elevation = dp(16).toFloat()
         }
-        // верх: значення швидкості і червоний ✕ — закрити автоскрол повністю
-        val head = FrameLayout(s)
-        val value = text(Prefs.fmt(speed), 22f, SpeedScaleView.ACCENT, true)
-        head.addView(value, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
-        val closeAll = text("✕", 15f, Color.WHITE, true).apply {
+        // зверху: ▲ Вгору, ▼ Вниз і червоний ✕ — закрити автоскрол повністю
+        val row = LinearLayout(s).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        fun dirBtn(t: String, down: Boolean) = text(t, 13f, 0xFF0E1013.toInt(), true).apply {
+            background = round(SpeedScaleView.ACCENT, dp(16).toFloat())
+            setPadding(dp(8), dp(7), dp(8), dp(7))
+            setOnClickListener { collapseScale(true); startScroll(down) }
+        }
+        row.addView(dirBtn("▲ Вгору", false), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(0, 0, dp(4), 0) })
+        row.addView(dirBtn("▼ Вниз", true), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(0, 0, dp(6), 0) })
+        val closeAll = text("✕", 14f, Color.WHITE, true).apply {
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFFE5393B.toInt()) }
             contentDescription = "Закрити Автоскрол повністю"
             setOnClickListener { shutdown() }
         }
-        head.addView(closeAll, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.END or Gravity.CENTER_VERTICAL))
-        box.addView(head, LinearLayout.LayoutParams(MATCH_PARENT, dp(34)))
+        row.addView(closeAll, LinearLayout.LayoutParams(dp(30), dp(30)))
+        box.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
+        // під ними — тільки шкала: швидкість вибирається пальцем
         val scale = SpeedScaleView(s).apply { this.value = speed; compact = true }
-        fun set(v: Float) {
+        scale.onChange = { v ->
             val c = Prefs.clamp(v)
-            speed = c; value.text = Prefs.fmt(c); scale.value = c; Prefs.setSpeed(s, c); scroller.speed = c
+            speed = c; Prefs.setSpeed(s, c); scroller.speed = c
         }
-        scale.onChange = { set(it) }
         box.addView(scale, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-
-        val fine = LinearLayout(s).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        fun step(t: String, delta: Float) = text(t, 12f, Color.WHITE, true).apply {
-            background = round(0x22FFFFFF, dp(14).toFloat())
-            setPadding(dp(7), dp(5), dp(7), dp(5))
-            setOnClickListener { set(speed + delta) }
-        }
-        fun lp() = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { setMargins(dp(2), 0, dp(2), 0) }
-        fine.addView(step("−0,1", -0.1f), lp()); fine.addView(step("−0,01", -0.01f), lp())
-        fine.addView(step("+0,01", 0.01f), lp()); fine.addView(step("+0,1", 0.1f), lp())
-        box.addView(fine)
-
-        val row = LinearLayout(s).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun dirBtn(t: String, down: Boolean) = text(t, 13f, 0xFF0E1013.toInt(), true).apply {
-            background = round(SpeedScaleView.ACCENT, dp(18).toFloat())
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            setOnClickListener { collapseScale(true); startScroll(down) }
-        }
-        row.addView(dirBtn("▲ Вгору", false), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
-        row.addView(dirBtn("▼ Вниз", true), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
-        box.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
 
         // тап будь-де поза шкалою — згорнути її назад у кнопку
         box.setOnTouchListener { _, e ->
@@ -226,7 +210,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             false
         }
 
-        val w = dp(250); val h = dp(215)
+        val w = dp(240); val h = dp(130)
         val sw = s.resources.displayMetrics.widthPixels; val sh = screenH()
         val p = params(w, WRAP_CONTENT, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH).apply {
@@ -261,7 +245,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
      * інакше він натискає і тягне саму кнопку. Зсуваємо її в бік.
      */
     private fun keepOffLane(v: View, p: WindowManager.LayoutParams) {
-        val w = if (v.width > 0) v.width else dp(110)
+        val w = if (v.width > 0) v.width else dp(75)
         val cx = (s.resources.displayMetrics.widthPixels * Scroller.X_FRACTION).toInt()
         val l = cx - dp(16); val r = cx + dp(16)
         if (p.x < r && p.x + w > l) p.x = if (p.x + w / 2 < cx && l - w >= 0) l - w else r
@@ -424,10 +408,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var lastTapUp = 0L
     private var taps = 0
     private var lastTapDown = 0L
-    private var tapsNeeded = 2
-
-    /** Яка програма зараз на екрані: від неї залежить, скільки тапів потрібно (2 чи 3). */
-    fun onAppChanged(pkg: String) { tapsNeeded = if (pkg in DOUBLE_TAP_APPS) 3 else 2; android.util.Log.d("Autoscroll", "taps=$tapsNeeded") }
+    private val tapsNeeded = 2         // всюди: 2 тапи — увімкнути, 2 тапи — вимкнути
 
     /** Будь-яка зміна вікна (кнопки «назад», «додому», «вікна») обнуляє серію тапів. */
     fun resetTaps() { taps = 0; lastTapDown = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
@@ -439,18 +420,6 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         const val DEDUPE = 90L          // один і той самий дотик не рахуємо двічі
         const val MULTI_TAP = 400L      // проміжок між тапами в серії
         const val LONG_PRESS = 550L     // утримання кнопки — маленька шкала
-        // Програми, де подвійний тап уже щось робить (лайк, зум, реакція) — там наш жест потрійний.
-        val DOUBLE_TAP_APPS = setOf(
-            "com.instagram.android", "com.instagram.barcelona", "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",
-            "com.google.android.youtube", "com.facebook.katana", "com.facebook.lite", "com.facebook.orca",
-            "org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram",
-            "com.whatsapp", "com.whatsapp.w4b", "com.viber.voip", "com.snapchat.android", "com.pinterest",
-            "com.reddit.frontpage", "com.twitter.android", "com.linkedin.android", "com.vkontakte.android",
-            "com.google.android.apps.photos", "com.sec.android.gallery3d", "com.miui.gallery", "com.android.gallery3d",
-            "com.google.android.apps.maps", "com.android.chrome", "org.mozilla.firefox", "com.opera.browser",
-            "com.sec.android.app.sbrowser", "com.amazon.kindle", "com.adobe.reader", "com.google.android.apps.docs",
-            "com.netflix.mediaclient", "com.google.android.apps.youtube.music", "com.tinder", "com.bumble.app",
-        )
         const val TAP_PAUSE = 2500L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
     }
