@@ -79,6 +79,21 @@ class AutoScrollService : AccessibilityService() {
     }
     private fun isLauncher(pkg: String) = pkg in launchers
 
+    /**
+     * Зараз вводять текст чи код: відкрита клавіатура, екран блокування (PIN, пароль),
+     * набір номера, системне вікно — тоді тапи по екрану не вмикають автоскрол.
+     */
+    fun typingOrLocked(): Boolean {
+        if (getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true) return true
+        if (lastPkg == "com.android.systemui" || lastPkg in DIALERS) return true
+        return keyboardVisible()
+    }
+
+    private val DIALERS = setOf(
+        "com.google.android.dialer", "com.android.dialer", "com.samsung.android.dialer", "com.android.contacts",
+        "com.motorola.dialer", "com.android.incallui",
+    )
+
     /** Чи відкрита зараз клавіатура (тоді тапи по екрану — це набір тексту, а не наш жест). */
     fun keyboardVisible() = runCatching {
         windows.any { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
