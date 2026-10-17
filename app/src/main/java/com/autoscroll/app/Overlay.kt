@@ -1,4 +1,4 @@
-﻿package com.autoscroll.app
+package com.autoscroll.app
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
@@ -38,9 +38,81 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         }
     }
 
-    init { handler.post { ensureWatcher() } }
+    init { handler.post { ensureWatcher(); refreshButton() } }
 
-    fun destroy() { stopAll(); hideMenu(); hideWatcher() }
+    fun destroy() { stopAll(); hideMenu(); hideWatcher(); hideButton() }
+
+    // ---------------- Напівпрозора кнопка ----------------
+    // 2 тапи — увімкнути/вимкнути скрол, 1 тап — коло зі шкалою швидкості, перетягування — перемістити.
+    private var button: View? = null
+    private var buttonLp: WindowManager.LayoutParams? = null
+    private var btnLastTap = 0L
+    private var btnTouchAt = 0L
+    private val btnSingle = Runnable { toggle() }
+
+    fun refreshButton() { if (Prefs.buttonOn(s)) showButton() else hideButton() }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showButton() {
+        if (button != null) return
+        val size = dp(52)
+        val v = TextView(s).apply {
+            text = "⇅"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(0xFF1A1D23.toInt()); setStroke(dp(1.5), SpeedScaleView.ACCENT)
+            }
+            alpha = 0.3f
+        }
+        val (sx, sy) = Prefs.buttonPos(s)
+        val p = params(size, size, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = if (sx >= 0) sx else s.resources.displayMetrics.widthPixels - size - dp(8)
+            y = if (sy >= 0) sy else s.resources.displayMetrics.heightPixels / 2
+        }
+        var rx = 0f; var ry = 0f; var px = 0; var py = 0; var moved = false
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { btnTouchAt = android.os.SystemClock.uptimeMillis(); rx = e.rawX; ry = e.rawY; px = p.x; py = p.y; moved = false; v.alpha = 0.6f }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - rx; val dy = e.rawY - ry
+                    if (!moved && Math.hypot(dx.toDouble(), dy.toDouble()) > dp(8)) moved = true
+                    if (moved) {
+                        p.x = (px + dx).toInt().coerceAtLeast(0); p.y = (py + dy).toInt().coerceAtLeast(0)
+                        runCatching { wm.updateViewLayout(v, p) }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.alpha = 0.3f
+                    if (moved) Prefs.setButtonPos(s, p.x, p.y)
+                    else if (e.actionMasked == MotionEvent.ACTION_UP) onButtonTap()
+                }
+            }
+            true
+        }
+        runCatching { wm.addView(v, p); button = v; buttonLp = p }
+    }
+
+    private fun onButtonTap() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - btnLastTap < MULTI_TAP) {
+            btnLastTap = 0; handler.removeCallbacks(btnSingle)
+            if (scroller.running || pill != null) stopAll() else startScroll(scrollDown)
+        } else {
+            btnLastTap = now
+            handler.postDelayed(btnSingle, MULTI_TAP)
+        }
+    }
+
+    /** Кнопка має лишатися над невидимим шаром, тому після шару додаємо її заново. */
+    private fun raiseButton() {
+        val v = button ?: return; val p = buttonLp ?: return
+        runCatching { wm.removeView(v); wm.addView(v, p) }
+    }
+
+    private fun hideButton() {
+        button?.let { runCatching { wm.removeView(it) } }
+        button = null; buttonLp = null
+    }
 
     private fun params(w: Int, h: Int, flags: Int) = WindowManager.LayoutParams(
         w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
@@ -204,6 +276,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private companion object {
         const val TAP_MAX = 250L        // довше — це утримання
+        const val TWO_FINGER_HOLD = 1500L
         const val DEDUPE = 90L          // один і той самий дотик не рахуємо двічі
         const val MULTI_TAP = 400L      // проміжок між тапами в серії
         // Програми, де подвійний тап уже щось робить (лайк, зум, реакція) — там наш жест потрійний.
@@ -233,6 +306,15 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         }
     }
 
+    // Два пальці одночасно, утримання 1,5 с — вимкнути скрол
+    private var fingers = 0
+    private val twoFingerStop = Runnable { fingers = 0; stopAll() }
+    private fun checkTwoFingers() {
+        if (fingers < 2) return
+        taps = 0; lastTapDown = 0
+        handler.removeCallbacks(twoFingerStop); handler.postDelayed(twoFingerStop, TWO_FINGER_HOLD)
+    }
+
     /** Ще один тап у серії. true — серія набрана, скрол на паузі. */
     private fun shieldTap(now: Long): Boolean {
         handler.removeCallbacks(resume)
@@ -248,7 +330,12 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private fun onShieldTouch(e: MotionEvent): Boolean {
         val now = android.os.SystemClock.uptimeMillis()
         when (e.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> { fingers++; checkTwoFingers(); return true }
+            MotionEvent.ACTION_POINTER_UP -> { fingers = (fingers - 1).coerceAtLeast(0); handler.removeCallbacks(twoFingerStop); return true }
             MotionEvent.ACTION_DOWN -> {
+                fingers++
+                // другий палець на іншій половині екрана — це не тап, а жест двома пальцями
+                if (fingers >= 2) { checkTwoFingers(); return true }
                 // цей дотик уже зарахований через перерваний жест
                 if (now - lastTapDown < DEDUPE) { downAt = now; return true }
                 if (shieldTap(now)) return true
@@ -256,6 +343,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             }
             // CANCEL приходить, коли дотик людини зупиняє віртуальний палець, — це той самий тап
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                fingers = (fingers - 1).coerceAtLeast(0); handler.removeCallbacks(twoFingerStop)
                 if (now - downAt < TAP_MAX) {
                     lastTapUp = now
                     handler.postDelayed(resume, TAP_PAUSE)
@@ -284,6 +372,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             }
             wm.addView(v, p); shields += v
         }
+        raiseButton()
     }
 
     private fun screenH(): Int =
@@ -301,6 +390,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun hideShields() {
+        fingers = 0; handler.removeCallbacks(twoFingerStop)
         shields.forEach { runCatching { wm.removeView(it) } }
         shields.clear()
     }
@@ -340,7 +430,13 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     val now = android.os.SystemClock.uptimeMillis()
                     outsideTaps = if (now - lastOutside < MULTI_TAP) outsideTaps + 1 else 1
                     lastOutside = now
-                    if (outsideTaps >= tapsNeeded) { outsideTaps = 0; lastOutside = 0; onTripleOutside() }
+                    if (outsideTaps >= tapsNeeded) {
+                        outsideTaps = 0; lastOutside = 0
+                        // тапи по нашій кнопці теж «зовні» для цього вікна — їх обробляє сама кнопка
+                        handler.postDelayed({
+                            if (android.os.SystemClock.uptimeMillis() - btnTouchAt > 800) onTripleOutside()
+                        }, 60)
+                    }
                 }
                 false
             }

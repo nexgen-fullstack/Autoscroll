@@ -1,4 +1,4 @@
-﻿package com.autoscroll.app
+package com.autoscroll.app
 
 import android.app.Activity
 import android.content.Intent
@@ -20,6 +20,10 @@ class MainActivity : Activity() {
     private fun dp(v: Number) = (v.toFloat() * d).toInt()
     private lateinit var status: TextView
     private lateinit var enableBtn: TextView
+    private lateinit var btnToggle: TextView
+    private fun refreshBtnToggle() {
+        btnToggle.text = if (Prefs.buttonOn(this)) "Кнопка ⇅ на екрані: показана" else "Кнопка ⇅ на екрані: прихована"
+    }
     private val baseBtns = mutableListOf<Pair<Int, TextView>>()
 
     private fun bg(color: Int, r: Float, stroke: Int = 0) = GradientDrawable().apply {
@@ -63,6 +67,16 @@ class MainActivity : Activity() {
             setOnClickListener { AutoScrollService.instance?.toggle() }
         }
         col.addView(test, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        gap(10)
+        btnToggle = tv("", 15f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER; setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = bg(0x22FFFFFF, 26f)
+            setOnClickListener {
+                Prefs.setButtonOn(this@MainActivity, !Prefs.buttonOn(this@MainActivity))
+                AutoScrollService.instance?.refreshButton(); refreshBtnToggle()
+            }
+        }
+        col.addView(btnToggle, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         gap(28)
 
         col.addView(tv("Швидкість 1×", 18f, Color.WHITE, true))
@@ -96,9 +110,11 @@ class MainActivity : Activity() {
             "• У колі натисніть ▲ ВГОРУ або ▼ ВНИЗ — почнеться скрол.",
             "• Торкніться цифри в центрі кола — з'явиться шкала 0,25…1,75. Тягніть повзунок на будь-яке значення (1,23; 1,68 …), кнопки ±0,01 і ±0,1 для точності.",
             "• Під час скролу праворуч зверху є маленька панель: тап по ній — пауза і коло, ■ — стоп. Її можна перетягнути.",
-            "• Один тап по екрану — пауза ~2 секунди, потім скрол продовжується.",
+            "• 2 тапи будь-де — увімкнути скрол; під час скролу 2 тапи — пауза (можна виділяти текст), ще 2 — далі. У програмах, де подвійний тап уже зайнятий (Instagram, TikTok, WhatsApp…), — 3 тапи. Поки відкрита клавіатура, тапи не діють.",
+            "• Напівпрозора кнопка ⇅: 2 тапи — увімкнути/вимкнути скрол, 1 тап — коло зі шкалою швидкості. Кнопку можна перетягнути.",
+            "• Два пальці на екрані й утримання 1,5 с — вимкнути скрол.",
+            "• Один тап по екрану — пауза 2,5 секунди, потім скрол продовжується.",
             "• Затисніть палець — скрол стоїть, поки тримаєте; відпустили — їде далі.",
-            "• Подвійний тап — скрол зупиняється повністю.",
         ).forEach { col.addView(tv(it, 14f, 0xDDFFFFFF.toInt())); gap(8) }
         gap(16)
         col.addView(tv("Кнопку живлення і дотик чотирма пальцями Android не дає перехоплювати стороннім додаткам, тому замість них — способи вище.", 12.5f, 0x77FFFFFF.toInt()))
@@ -125,7 +141,7 @@ class MainActivity : Activity() {
         status.setTextColor(if (on) SpeedScaleView.ACCENT else 0xFFFF8A80.toInt())
         status.background = bg(if (on) 0x1A7CF5C4 else 0x1AFF8A80, 18f)
         enableBtn.text = if (on) "Налаштування спец. можливостей" else "Увімкнути Автоскрол"
-        refreshBase()
+        refreshBase(); refreshBtnToggle()
     }
 }
 

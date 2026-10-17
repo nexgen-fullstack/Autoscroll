@@ -1,4 +1,4 @@
-﻿package com.autoscroll.app
+package com.autoscroll.app
 
 import android.content.Context
 
@@ -13,6 +13,12 @@ object Prefs {
     /** Швидкість 1× у dp за секунду */
     fun baseDp(c: Context) = c.getSharedPreferences(FILE, 0).getInt("base", 120)
     fun setBaseDp(c: Context, v: Int) = c.getSharedPreferences(FILE, 0).edit().putInt("base", v).apply()
+
+    /** Напівпрозора кнопка на екрані */
+    fun buttonOn(c: Context) = c.getSharedPreferences(FILE, 0).getBoolean("btn", true)
+    fun setButtonOn(c: Context, v: Boolean) = c.getSharedPreferences(FILE, 0).edit().putBoolean("btn", v).apply()
+    fun buttonPos(c: Context) = c.getSharedPreferences(FILE, 0).let { it.getInt("bx", -1) to it.getInt("by", -1) }
+    fun setButtonPos(c: Context, x: Int, y: Int) = c.getSharedPreferences(FILE, 0).edit().putInt("bx", x).putInt("by", y).apply()
 
     fun clamp(v: Float) = (Math.round(v.coerceIn(MIN_SPEED, MAX_SPEED) * 100f) / 100f)
     fun fmt(v: Float) = String.format(java.util.Locale.US, "%.2f×", v).replace('.', ',')

@@ -1,4 +1,4 @@
-﻿package com.autoscroll.app
+package com.autoscroll.app
 
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
@@ -29,6 +29,8 @@ class AutoScrollService : AccessibilityService() {
         overlay = Overlay(this, scroller)
         runCatching { accessibilityButtonController.registerAccessibilityButtonCallback(buttonCallback) }
     }
+
+    fun refreshButton() { if (::overlay.isInitialized) overlay.refreshButton() }
 
     fun toggle() { if (::overlay.isInitialized) overlay.toggle() }
 
