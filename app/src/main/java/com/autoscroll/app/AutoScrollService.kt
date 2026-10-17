@@ -58,10 +58,18 @@ class AutoScrollService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || !::overlay.isInitialized) return
-        overlay.resetTaps()
         val pkg = event.packageName?.toString() ?: return
-        if (pkg != packageName && pkg != "com.android.systemui") overlay.onAppChanged(pkg)
+        if (pkg == packageName || isKeyboard(pkg)) return
+        android.util.Log.d("Autoscroll", "window: $pkg")
+        // «назад», «додому», «вікна», перехід в іншу програму — скрол вимикається
+        overlay.resetTaps(); overlay.stopAll()
+        if (pkg != "com.android.systemui") overlay.onAppChanged(pkg)
     }
+    /** Клавіатура, що з'являється, — це не перехід в іншу програму. */
+    private fun isKeyboard(pkg: String) =
+        getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            ?.enabledInputMethodList?.any { it.packageName == pkg } == true
+
     override fun onInterrupt() { if (::scroller.isInitialized) scroller.stop() }
 
     override fun onDestroy() {

@@ -192,17 +192,19 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var downAt = 0L
     private var lastTapUp = 0L
     private var taps = 0
+    private var lastTapDown = 0L
     private var tapsNeeded = 2
 
     /** Яка програма зараз на екрані: від неї залежить, скільки тапів потрібно (2 чи 3). */
-    fun onAppChanged(pkg: String) { tapsNeeded = if (pkg in DOUBLE_TAP_APPS) 3 else 2 }
+    fun onAppChanged(pkg: String) { tapsNeeded = if (pkg in DOUBLE_TAP_APPS) 3 else 2; android.util.Log.d("Autoscroll", "taps=$tapsNeeded") }
 
     /** Будь-яка зміна вікна (кнопки «назад», «додому», «вікна») обнуляє серію тапів. */
-    fun resetTaps() { taps = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
+    fun resetTaps() { taps = 0; lastTapDown = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
     private val resume = Runnable { scroller.start(scrollDown, speed) }
 
     private companion object {
         const val TAP_MAX = 250L        // довше — це утримання
+        const val DEDUPE = 90L          // один і той самий дотик не рахуємо двічі
         const val MULTI_TAP = 400L      // проміжок між тапами в серії
         // Програми, де подвійний тап уже щось робить (лайк, зум, реакція) — там наш жест потрійний.
         val DOUBLE_TAP_APPS = setOf(
@@ -220,18 +222,40 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         const val HOLD_RESUME = 150L    // продовжити після відпускання
     }
 
+    init {
+        // перший дотик під час руху «віртуального пальця» система віддає не шару, а скасовує жест
+        scroller.onInterrupted = {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (shields.isNotEmpty() && now - lastTapDown >= DEDUPE && !shieldTap(now)) {
+                downAt = now; lastTapUp = now
+                handler.postDelayed(resume, TAP_PAUSE)
+            }
+        }
+    }
+
+    /** Ще один тап у серії. true — серія набрана, скрол на паузі. */
+    private fun shieldTap(now: Long): Boolean {
+        handler.removeCallbacks(resume)
+        scroller.halt()
+        taps = if (now - lastTapDown < MULTI_TAP + TAP_MAX) taps + 1 else 1
+        lastTapDown = now
+        android.util.Log.d("Autoscroll", "shield tap $taps/$tapsNeeded")
+        if (taps >= tapsNeeded) { taps = 0; lastTapDown = 0; pause(); return true }
+        return false
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun onShieldTouch(e: MotionEvent): Boolean {
         val now = android.os.SystemClock.uptimeMillis()
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                handler.removeCallbacks(resume)
-                scroller.stop()
-                taps = if (now - lastTapUp < MULTI_TAP) taps + 1 else 1
-                if (taps >= tapsNeeded) { taps = 0; lastTapUp = 0; pause(); return true }
+                // цей дотик уже зарахований через перерваний жест
+                if (now - lastTapDown < DEDUPE) { downAt = now; return true }
+                if (shieldTap(now)) return true
                 downAt = now
             }
-            MotionEvent.ACTION_UP -> {
+            // CANCEL приходить, коли дотик людини зупиняє віртуальний палець, — це той самий тап
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (now - downAt < TAP_MAX) {
                     lastTapUp = now
                     handler.postDelayed(resume, TAP_PAUSE)
@@ -240,7 +264,6 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     handler.postDelayed(resume, HOLD_RESUME)
                 }
             }
-            MotionEvent.ACTION_CANCEL -> handler.postDelayed(resume, HOLD_RESUME)
         }
         return true
     }
@@ -298,6 +321,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun onTripleOutside() {
+        android.util.Log.d("Autoscroll", "multi-tap outside")
         when {
             menu != null -> {}
             paused -> unpause()
@@ -340,7 +364,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         pillLabel?.text = (if (paused) "⏸ " else if (scrollDown) "▼ " else "▲ ") + Prefs.fmt(speed)
     }
 
-    private fun stopAll() {
+    fun stopAll() {
         handler.removeCallbacks(resume)
         scroller.stop(); hidePill()
         if (menu == null) ensureWatcher()

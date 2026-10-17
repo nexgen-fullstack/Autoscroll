@@ -19,6 +19,8 @@ class Scroller(private val service: AccessibilityService) {
     var down = true
     var running = false
         private set
+    /** Жест перервав дотик людини (сам дотик система при цьому «з'їдає») */
+    var onInterrupted: (() -> Unit)? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var stroke: StrokeDescription? = null
@@ -44,6 +46,18 @@ class Scroller(private val service: AccessibilityService) {
     fun stop() {
         running = false
         handler.removeCallbacksAndMessages(null)
+    }
+
+    /** Миттєво «прибрати палець»: поки віртуальний палець на екрані, наступні дотики людини губляться. */
+    fun halt() {
+        stop()
+        val prev = stroke ?: return
+        stroke = null
+        generation++
+        val p = Path().apply { moveTo(x, y); lineTo(x, y) }
+        runCatching {
+            service.dispatchGesture(GestureDescription.Builder().addStroke(prev.continueStroke(p, 0, 1, false)).build(), null, null)
+        }
     }
 
     private fun pxPerSeg(): Float = Prefs.baseDp(service) * dm.density * speed * SEG / 1000f
@@ -74,7 +88,7 @@ class Scroller(private val service: AccessibilityService) {
         val p = Path().apply { moveTo(x, y); lineTo(x, y + d) }
         y += d
         // при зупинці палець спершу «завмирає», щоб список не доїжджав за інерцією
-        val s = prev.continueStroke(p, 0, if (!running) 300L else SEG, !finish)
+        val s = prev.continueStroke(p, 0, if (!running) 100L else SEG, !finish)
         if (finish) {
             dispatchFinal(s)
         } else dispatch(s, gen)
@@ -85,7 +99,7 @@ class Scroller(private val service: AccessibilityService) {
         val ok = service.dispatchGesture(GestureDescription.Builder().addStroke(s).build(),
             object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) { next(gen) }
-                override fun onCancelled(g: GestureDescription?) { restartLater() }
+                override fun onCancelled(g: GestureDescription?) { android.util.Log.d("Autoscroll", "gesture cancelled"); restartLater(); onInterrupted?.invoke() }
             }, handler)
         if (!ok) restartLater()
     }
@@ -98,7 +112,7 @@ class Scroller(private val service: AccessibilityService) {
                     val gen = generation
                     if (running) handler.postDelayed({ beginStroke(gen) }, 16)
                 }
-                override fun onCancelled(g: GestureDescription?) { restartLater() }
+                override fun onCancelled(g: GestureDescription?) { android.util.Log.d("Autoscroll", "gesture cancelled"); restartLater(); onInterrupted?.invoke() }
             }, handler)
         if (!ok) restartLater()
     }
