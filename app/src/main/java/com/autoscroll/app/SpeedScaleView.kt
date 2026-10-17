@@ -15,6 +15,9 @@ class SpeedScaleView(context: Context) : View(context) {
     var value = 1f
         set(v) { field = Prefs.clamp(v); invalidate() }
     var onChange: ((Float) -> Unit)? = null
+    /** Нижча шкала — для маленької панелі біля кнопки. */
+    var compact = false
+        set(v) { field = v; requestLayout() }
 
     private val d = resources.displayMetrics.density
     private val pad = 18 * d
@@ -30,14 +33,14 @@ class SpeedScaleView(context: Context) : View(context) {
     private var lastTick = -1
 
     override fun onMeasure(w: Int, h: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(w), (96 * d).toInt())
+        setMeasuredDimension(MeasureSpec.getSize(w), ((if (compact) 78 else 96) * d).toInt())
     }
 
     private fun xOf(v: Float) = pad + (v - Prefs.MIN_SPEED) / (Prefs.MAX_SPEED - Prefs.MIN_SPEED) * (width - 2 * pad)
     private fun vOf(x: Float) = Prefs.MIN_SPEED + ((x - pad) / (width - 2 * pad)) * (Prefs.MAX_SPEED - Prefs.MIN_SPEED)
 
     override fun onDraw(c: Canvas) {
-        val cy = height * 0.55f
+        val cy = height * (if (compact) 0.6f else 0.55f)
         c.drawLine(pad, cy, width - pad, cy, track)
         c.drawLine(pad, cy, xOf(value), cy, fill)
         var i = 0
