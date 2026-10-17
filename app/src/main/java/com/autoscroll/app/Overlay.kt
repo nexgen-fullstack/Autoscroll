@@ -236,7 +236,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     /** Ще один тап у серії. true — серія набрана, скрол на паузі. */
     private fun shieldTap(now: Long): Boolean {
         handler.removeCallbacks(resume)
-        scroller.halt()
+        scroller.stop()
         taps = if (now - lastTapDown < MULTI_TAP + TAP_MAX) taps + 1 else 1
         lastTapDown = now
         android.util.Log.d("Autoscroll", "shield tap $taps/$tapsNeeded")
@@ -335,6 +335,8 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         val v = View(s).apply {
             setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                    // поки відкрита клавіатура — людина набирає текст, наш жест не діє
+                    if ((s as? AutoScrollService)?.keyboardVisible() == true) { outsideTaps = 0; lastOutside = 0; return@setOnTouchListener false }
                     val now = android.os.SystemClock.uptimeMillis()
                     outsideTaps = if (now - lastOutside < MULTI_TAP) outsideTaps + 1 else 1
                     lastOutside = now

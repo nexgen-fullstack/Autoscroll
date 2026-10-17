@@ -62,9 +62,26 @@ class AutoScrollService : AccessibilityService() {
         if (pkg == packageName || isKeyboard(pkg)) return
         android.util.Log.d("Autoscroll", "window: $pkg")
         // «назад», «додому», «вікна», перехід в іншу програму — скрол вимикається
-        overlay.resetTaps(); overlay.stopAll()
+        overlay.stopAll()
+        // серію тапів обнуляємо лише при зміні програми (або «додому»/«вікна»),
+        // а не на кожне вікно всередині програми — інакше перший тап «губиться»
+        if (pkg != lastPkg || pkg == "com.android.systemui" || isLauncher(pkg)) overlay.resetTaps()
+        lastPkg = pkg
         if (pkg != "com.android.systemui") overlay.onAppChanged(pkg)
     }
+    private var lastPkg = ""
+    private val launchers by lazy {
+        packageManager.queryIntentActivities(
+            android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), 0
+        ).map { it.activityInfo.packageName }.toSet()
+    }
+    private fun isLauncher(pkg: String) = pkg in launchers
+
+    /** Чи відкрита зараз клавіатура (тоді тапи по екрану — це набір тексту, а не наш жест). */
+    fun keyboardVisible() = runCatching {
+        windows.any { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+    }.getOrDefault(false)
+
     /** Клавіатура, що з'являється, — це не перехід в іншу програму. */
     private fun isKeyboard(pkg: String) =
         getSystemService(android.view.inputmethod.InputMethodManager::class.java)
