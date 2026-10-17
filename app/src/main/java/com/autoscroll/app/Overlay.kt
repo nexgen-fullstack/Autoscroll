@@ -38,7 +38,9 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         }
     }
 
-    fun destroy() { stopAll(); hideMenu() }
+    init { handler.post { ensureWatcher() } }
+
+    fun destroy() { stopAll(); hideMenu(); hideWatcher() }
 
     private fun params(w: Int, h: Int, flags: Int) = WindowManager.LayoutParams(
         w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
@@ -56,7 +58,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     // ---------------- Коло ----------------
     private fun showMenu() {
-        hidePill()
+        hidePill(); hideWatcher()
         if (menu != null) return
         speed = Prefs.speed(s)
         val root = FrameLayout(s).apply { setBackgroundColor(0x99000000.toInt()) }
@@ -170,10 +172,11 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private fun hideMenu() {
         menu?.let { runCatching { wm.removeView(it) } }
         menu = null
+        if (pill == null) ensureWatcher()
     }
 
     private fun startScroll(down: Boolean) {
-        hideMenu()
+        hideMenu(); hideWatcher(); paused = false
         Prefs.setSpeed(s, speed)
         scrollDown = down
         showShields()
@@ -188,11 +191,13 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var scrollDown = true
     private var downAt = 0L
     private var lastTapUp = 0L
+    private var taps = 0
     private val resume = Runnable { scroller.start(scrollDown, speed) }
 
     private companion object {
         const val TAP_MAX = 250L        // довше — це утримання
-        const val DOUBLE_TAP = 350L     // проміжок між двома тапами
+        const val MULTI_TAP = 400L      // проміжок між тапами в серії
+        const val TAPS = 3              // потрійний тап — старт/пауза (подвійний лишаємо програмам)
         const val TAP_PAUSE = 1800L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
     }
@@ -204,7 +209,8 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             MotionEvent.ACTION_DOWN -> {
                 handler.removeCallbacks(resume)
                 scroller.stop()
-                if (now - lastTapUp < DOUBLE_TAP) { lastTapUp = 0; pause(); return true }
+                taps = if (now - lastTapUp < MULTI_TAP) taps + 1 else 1
+                if (taps >= TAPS) { taps = 0; lastTapUp = 0; pause(); return true }
                 downAt = now
             }
             MotionEvent.ACTION_UP -> {
@@ -243,22 +249,39 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         shields.clear()
     }
 
-    // ---------------- Пауза: подвійний тап зупиняє, наступний подвійний — продовжує ----------------
+    // ---------------- Потрійний тап: будь-де — старт, під час скролу — пауза, на паузі — продовжити ----------------
     // Під час паузи шару немає, тож текст можна виділяти. Дотики ловимо крихітним вікном
     // з FLAG_WATCH_OUTSIDE_TOUCH: воно отримує ACTION_OUTSIDE, а дотик іде далі в програму.
     private var watcher: View? = null
     private var lastOutside = 0L
+    private var outsideTaps = 0
+    private var paused = false
 
-    @SuppressLint("ClickableViewAccessibility")
     private fun pause() {
         handler.removeCallbacks(resume)
         scroller.stop(); hideShields(); setPillPaused(true)
-        hideWatcher()
+        paused = true
+        ensureWatcher()
+    }
+
+    private fun onTripleOutside() {
+        when {
+            menu != null -> {}
+            paused -> unpause()
+            pill == null -> startScroll(scrollDown)
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun ensureWatcher() {
+        if (watcher != null) return
         val v = View(s).apply {
             setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) {
                     val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastOutside < DOUBLE_TAP) { lastOutside = 0; unpause() } else lastOutside = now
+                    outsideTaps = if (now - lastOutside < MULTI_TAP) outsideTaps + 1 else 1
+                    lastOutside = now
+                    if (outsideTaps >= TAPS) { outsideTaps = 0; lastOutside = 0; onTripleOutside() }
                 }
                 false
             }
@@ -266,18 +289,18 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         val p = params(1, 1,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH).apply { gravity = Gravity.TOP or Gravity.START }
-        wm.addView(v, p); watcher = v
+        runCatching { wm.addView(v, p); watcher = v }
     }
 
     private fun unpause() {
-        hideWatcher(); setPillPaused(false)
+        hideWatcher(); setPillPaused(false); paused = false
         showShields()
         handler.postDelayed(resume, 300)
     }
 
     private fun hideWatcher() {
         watcher?.let { runCatching { wm.removeView(it) } }
-        watcher = null; lastOutside = 0
+        watcher = null; lastOutside = 0; outsideTaps = 0
     }
 
     private fun setPillPaused(paused: Boolean) {
@@ -286,7 +309,8 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private fun stopAll() {
         handler.removeCallbacks(resume)
-        scroller.stop(); hideWatcher(); hidePill()
+        scroller.stop(); hidePill()
+        if (menu == null) ensureWatcher()
     }
 
     // ---------------- Пігулка під час скролу ----------------
@@ -334,7 +358,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private fun hidePill() {
         hideShields()
         pill?.let { runCatching { wm.removeView(it) } }
-        pill = null; pillLabel = null
+        pill = null; pillLabel = null; paused = false
     }
 }
 
