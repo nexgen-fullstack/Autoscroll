@@ -56,7 +56,12 @@ class AutoScrollService : AccessibilityService() {
         return false
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || !::overlay.isInitialized) return
+        overlay.resetTaps()
+        val pkg = event.packageName?.toString() ?: return
+        if (pkg != packageName && pkg != "com.android.systemui") overlay.onAppChanged(pkg)
+    }
     override fun onInterrupt() { if (::scroller.isInitialized) scroller.stop() }
 
     override fun onDestroy() {

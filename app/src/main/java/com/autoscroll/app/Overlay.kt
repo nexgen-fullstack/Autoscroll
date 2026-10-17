@@ -192,13 +192,31 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private var downAt = 0L
     private var lastTapUp = 0L
     private var taps = 0
+    private var tapsNeeded = 2
+
+    /** Яка програма зараз на екрані: від неї залежить, скільки тапів потрібно (2 чи 3). */
+    fun onAppChanged(pkg: String) { tapsNeeded = if (pkg in DOUBLE_TAP_APPS) 3 else 2 }
+
+    /** Будь-яка зміна вікна (кнопки «назад», «додому», «вікна») обнуляє серію тапів. */
+    fun resetTaps() { taps = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
     private val resume = Runnable { scroller.start(scrollDown, speed) }
 
     private companion object {
         const val TAP_MAX = 250L        // довше — це утримання
         const val MULTI_TAP = 400L      // проміжок між тапами в серії
-        const val TAPS = 3              // потрійний тап — старт/пауза (подвійний лишаємо програмам)
-        const val TAP_PAUSE = 1800L     // пауза після одного тапу
+        // Програми, де подвійний тап уже щось робить (лайк, зум, реакція) — там наш жест потрійний.
+        val DOUBLE_TAP_APPS = setOf(
+            "com.instagram.android", "com.instagram.barcelona", "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",
+            "com.google.android.youtube", "com.facebook.katana", "com.facebook.lite", "com.facebook.orca",
+            "org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram",
+            "com.whatsapp", "com.whatsapp.w4b", "com.viber.voip", "com.snapchat.android", "com.pinterest",
+            "com.reddit.frontpage", "com.twitter.android", "com.linkedin.android", "com.vkontakte.android",
+            "com.google.android.apps.photos", "com.sec.android.gallery3d", "com.miui.gallery", "com.android.gallery3d",
+            "com.google.android.apps.maps", "com.android.chrome", "org.mozilla.firefox", "com.opera.browser",
+            "com.sec.android.app.sbrowser", "com.amazon.kindle", "com.adobe.reader", "com.google.android.apps.docs",
+            "com.netflix.mediaclient", "com.google.android.apps.youtube.music", "com.tinder", "com.bumble.app",
+        )
+        const val TAP_PAUSE = 2500L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
     }
 
@@ -210,7 +228,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                 handler.removeCallbacks(resume)
                 scroller.stop()
                 taps = if (now - lastTapUp < MULTI_TAP) taps + 1 else 1
-                if (taps >= TAPS) { taps = 0; lastTapUp = 0; pause(); return true }
+                if (taps >= tapsNeeded) { taps = 0; lastTapUp = 0; pause(); return true }
                 downAt = now
             }
             MotionEvent.ACTION_UP -> {
@@ -235,13 +253,28 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         val gap = dp(6)
         listOf(0 to cx - gap, cx + gap to w).forEach { (from, to) ->
             val v = View(s).apply { setOnTouchListener { _, e -> onShieldTouch(e) } }
-            val p = params(to - from, MATCH_PARENT,
+            // шар закінчується над панеллю навігації — «назад», «додому», «вікна» працюють як звичайно
+            val p = params(to - from, screenH() - navBarH(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS).apply {
                 gravity = Gravity.TOP or Gravity.START; x = from; y = 0
             }
             wm.addView(v, p); shields += v
         }
+    }
+
+    private fun screenH(): Int =
+        if (android.os.Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.height()
+        else android.util.DisplayMetrics().also { @Suppress("DEPRECATION") wm.defaultDisplay.getRealMetrics(it) }.heightPixels
+
+    private fun navBarH(): Int {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val i = wm.currentWindowMetrics.windowInsets
+                .getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.mandatorySystemGestures())
+            return maxOf(i.bottom, dp(24))
+        }
+        val id = s.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return maxOf(if (id > 0) s.resources.getDimensionPixelSize(id) else 0, dp(24))
     }
 
     private fun hideShields() {
@@ -281,7 +314,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     val now = android.os.SystemClock.uptimeMillis()
                     outsideTaps = if (now - lastOutside < MULTI_TAP) outsideTaps + 1 else 1
                     lastOutside = now
-                    if (outsideTaps >= TAPS) { outsideTaps = 0; lastOutside = 0; onTripleOutside() }
+                    if (outsideTaps >= tapsNeeded) { outsideTaps = 0; lastOutside = 0; onTripleOutside() }
                 }
                 false
             }
