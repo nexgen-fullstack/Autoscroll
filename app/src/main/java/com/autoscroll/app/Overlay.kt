@@ -27,7 +27,6 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private var menu: View? = null
     private var pill: View? = null
-    private var pillLabel: TextView? = null
     private var speed = Prefs.speed(s)
 
     /** Червоний ✕: закрити все повністю, доки людина знову не відкриє додаток «Автоскрол». */
@@ -514,7 +513,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun setPillPaused(paused: Boolean) {
-        pillLabel?.text = (if (paused) "⏸ " else if (scrollDown) "▼ " else "▲ ") + Prefs.fmt(speed)
+        buttonLabel?.text = (if (paused) "⏸ " else if (scrollDown) "▼ " else "▲ ") + Prefs.fmt(speed)
     }
 
     fun stopAll() {
@@ -523,52 +522,19 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         if (menu == null) ensureWatcher()
     }
 
-    // ---------------- Пігулка під час скролу ----------------
-    @SuppressLint("ClickableViewAccessibility")
+    // ---------------- Стан скролу ----------------
+    // Окремої пігулки більше немає: напрямок і швидкість показує та сама згорнута шкала.
     private fun showPill(down: Boolean) {
-        pill?.let { runCatching { wm.removeView(it) } }; pill = null
-        val box = LinearLayout(s).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            background = round(0xE61A1D23.toInt(), dp(24).toFloat(), 0x557CF5C4)
-            setPadding(dp(14), dp(8), dp(6), dp(8))
-            elevation = dp(8).toFloat()
-        }
-        val label = text((if (down) "▼ " else "▲ ") + Prefs.fmt(speed), 15f, SpeedScaleView.ACCENT, true)
-        pillLabel = label
-        val stop = text("■", 16f, Color.WHITE).apply {
-            background = round(0x33FFFFFF, dp(18).toFloat())
-            setPadding(dp(12), dp(4), dp(12), dp(4))
-            setOnClickListener { stopAll() }
-        }
-        box.addView(label)
-        box.addView(stop, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { leftMargin = dp(10) })
-
-        val p = params(WRAP_CONTENT, WRAP_CONTENT,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN).apply {
-            gravity = Gravity.TOP or Gravity.END; x = dp(10); y = dp(120)
-        }
-        // тап по написі — пауза і відкрити коло; перетягування — перемістити
-        var startY = 0f; var startPY = 0; var moved = false
-        label.setOnTouchListener { _, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { startY = e.rawY; startPY = p.y; moved = false }
-                MotionEvent.ACTION_MOVE -> {
-                    val dy = (e.rawY - startY).toInt()
-                    if (Math.abs(dy) > dp(6)) moved = true
-                    if (moved) { p.y = (startPY + dy).coerceAtLeast(0); runCatching { wm.updateViewLayout(box, p) } }
-                }
-                MotionEvent.ACTION_UP -> if (!moved) { handler.removeCallbacks(resume); scroller.stop(); hideWatcher(); showMenu() }
-            }
-            true
-        }
-        wm.addView(box, p)
-        pill = box
+        pill = View(s) // лише позначка «сесія скролу триває», на екран не додається
+        buttonLabel?.text = (if (down) "▼ " else "▲ ") + Prefs.fmt(speed)
+        raiseButton()
     }
 
     private fun hidePill() {
         hideShields()
         pill?.let { runCatching { wm.removeView(it) } }
-        pill = null; pillLabel = null; paused = false
+        pill = null; paused = false
+        buttonLabel?.text = "⇅ " + Prefs.fmt(Prefs.speed(s))
     }
 }
 
