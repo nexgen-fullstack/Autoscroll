@@ -27,12 +27,13 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private var menu: View? = null
     private var pill: View? = null
+    private var pillLabel: TextView? = null
     private var speed = Prefs.speed(s)
 
     fun toggle() {
         when {
             menu != null -> hideMenu()
-            scroller.running || pill != null -> { handler.removeCallbacks(resume); scroller.stop(); showMenu() }
+            scroller.running || pill != null -> { handler.removeCallbacks(resume); scroller.stop(); hideWatcher(); showMenu() }
             else -> showMenu()
         }
     }
@@ -203,7 +204,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             MotionEvent.ACTION_DOWN -> {
                 handler.removeCallbacks(resume)
                 scroller.stop()
-                if (now - lastTapUp < DOUBLE_TAP) { lastTapUp = 0; stopAll(); return true }
+                if (now - lastTapUp < DOUBLE_TAP) { lastTapUp = 0; pause(); return true }
                 downAt = now
             }
             MotionEvent.ACTION_UP -> {
@@ -242,9 +243,50 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         shields.clear()
     }
 
+    // ---------------- Пауза: подвійний тап зупиняє, наступний подвійний — продовжує ----------------
+    // Під час паузи шару немає, тож текст можна виділяти. Дотики ловимо крихітним вікном
+    // з FLAG_WATCH_OUTSIDE_TOUCH: воно отримує ACTION_OUTSIDE, а дотик іде далі в програму.
+    private var watcher: View? = null
+    private var lastOutside = 0L
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun pause() {
+        handler.removeCallbacks(resume)
+        scroller.stop(); hideShields(); setPillPaused(true)
+        hideWatcher()
+        val v = View(s).apply {
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastOutside < DOUBLE_TAP) { lastOutside = 0; unpause() } else lastOutside = now
+                }
+                false
+            }
+        }
+        val p = params(1, 1,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH).apply { gravity = Gravity.TOP or Gravity.START }
+        wm.addView(v, p); watcher = v
+    }
+
+    private fun unpause() {
+        hideWatcher(); setPillPaused(false)
+        showShields()
+        handler.postDelayed(resume, 300)
+    }
+
+    private fun hideWatcher() {
+        watcher?.let { runCatching { wm.removeView(it) } }
+        watcher = null; lastOutside = 0
+    }
+
+    private fun setPillPaused(paused: Boolean) {
+        pillLabel?.text = (if (paused) "⏸ " else if (scrollDown) "▼ " else "▲ ") + Prefs.fmt(speed)
+    }
+
     private fun stopAll() {
         handler.removeCallbacks(resume)
-        scroller.stop(); hidePill()
+        scroller.stop(); hideWatcher(); hidePill()
     }
 
     // ---------------- Пігулка під час скролу ----------------
@@ -258,6 +300,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             elevation = dp(8).toFloat()
         }
         val label = text((if (down) "▼ " else "▲ ") + Prefs.fmt(speed), 15f, SpeedScaleView.ACCENT, true)
+        pillLabel = label
         val stop = text("■", 16f, Color.WHITE).apply {
             background = round(0x33FFFFFF, dp(18).toFloat())
             setPadding(dp(12), dp(4), dp(12), dp(4))
@@ -280,7 +323,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     if (Math.abs(dy) > dp(6)) moved = true
                     if (moved) { p.y = (startPY + dy).coerceAtLeast(0); runCatching { wm.updateViewLayout(box, p) } }
                 }
-                MotionEvent.ACTION_UP -> if (!moved) { handler.removeCallbacks(resume); scroller.stop(); showMenu() }
+                MotionEvent.ACTION_UP -> if (!moved) { handler.removeCallbacks(resume); scroller.stop(); hideWatcher(); showMenu() }
             }
             true
         }
@@ -291,7 +334,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private fun hidePill() {
         hideShields()
         pill?.let { runCatching { wm.removeView(it) } }
-        pill = null
+        pill = null; pillLabel = null
     }
 }
 
