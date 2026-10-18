@@ -467,13 +467,30 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                 if (fingers >= 2) { checkTwoFingers(); return true }
                 // цей дотик уже зарахований через перерваний жест
                 if (now - lastTapDown < DEDUPE) { downAt = now; return true }
+                dragY = e.rawY; dragging = false; dragPending = 0f
                 if (shieldTap(now)) return true
                 downAt = now
+            }
+            // затиснули палець і ведете вгору-вниз — сторінка їде за пальцем
+            MotionEvent.ACTION_MOVE -> {
+                if (fingers >= 2) return true
+                val dy = e.rawY - dragY
+                if (!dragging && Math.abs(dy) > dp(10)) { dragging = true; taps = 0; lastTapDown = 0; handler.removeCallbacks(resume) }
+                if (dragging) {
+                    dragPending += dy; dragY = e.rawY
+                    handler.removeCallbacks(flushDrag); handler.postDelayed(flushDrag, 30)
+                }
+                return true
             }
             // CANCEL приходить, коли дотик людини зупиняє віртуальний палець, — це той самий тап
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 fingers = (fingers - 1).coerceAtLeast(0); handler.removeCallbacks(twoFingerStop)
-                if (now - downAt < TAP_MAX) {
+                if (dragging) {
+                    dragging = false; handler.removeCallbacks(flushDrag)
+                    val left = dragPending; dragPending = 0f
+                    lastTapUp = 0
+                    handler.postDelayed(resume, injectDrag(left) + HOLD_RESUME)
+                } else if (now - downAt < TAP_MAX) {
                     lastTapUp = now
                     handler.postDelayed(resume, TAP_PAUSE)
                 } else {
@@ -483,6 +500,44 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             }
         }
         return true
+    }
+
+    private var dragY = 0f
+    private var dragging = false
+    private var dragPending = 0f
+    private var dragBusyUntil = 0L
+    private val flushDrag = Runnable { if (dragging && Math.abs(dragPending) >= 1f) { val d = dragPending; dragPending = 0f; injectDrag(d) } }
+
+    /**
+     * Протягнути сторінку на dy пікселів (як пальцем) смугою «віртуального пальця».
+     * Наприкінці палець завмирає, щоб сторінка не летіла далі за інерцією. Повертає тривалість, мс.
+     */
+    private fun injectDrag(dy: Float): Long {
+        if (Math.abs(dy) < 1f) return 0
+        val now = android.os.SystemClock.uptimeMillis()
+        // попередній мазок ще не закінчився — додамо до наступного
+        if (now < dragBusyUntil && dragging) { dragPending += dy; return 0 }
+        val h = screenH() - navBarH()
+        val slop = dp(9) * Math.signum(dy) // програма «з'їдає» перші пікселі, поки не зрозуміє, що це прокрутка
+        val total = (dy + slop).coerceIn(-h * 0.8f, h * 0.8f)
+        val x = s.resources.displayMetrics.widthPixels * Scroller.X_FRACTION
+        val y0 = (h / 2f - total / 2f)
+        val dur = (Math.abs(total) * 0.9f).toLong().coerceIn(60, 400)
+        val move = android.accessibilityservice.GestureDescription.StrokeDescription(
+            android.graphics.Path().apply { moveTo(x, y0); lineTo(x, y0 + total) }, 0, dur, true)
+        val hold = move.continueStroke(android.graphics.Path().apply { moveTo(x, y0 + total); lineTo(x, y0 + total) }, 0, 90, false)
+        dragBusyUntil = now + dur + 120
+        android.util.Log.d("Autoscroll", "drag $dy dur=$dur")
+        runCatching {
+            s.dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(move).build(),
+                object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(g: android.accessibilityservice.GestureDescription?) {
+                        runCatching { s.dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(hold).build(), null, handler) }
+                    }
+                    override fun onCancelled(g: android.accessibilityservice.GestureDescription?) { android.util.Log.d("Autoscroll", "drag cancelled") }
+                }, handler)
+        }
+        return dur + 120
     }
 
     @SuppressLint("ClickableViewAccessibility")

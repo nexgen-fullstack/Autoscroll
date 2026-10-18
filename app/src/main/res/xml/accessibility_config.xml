@@ -4,7 +4,7 @@
     android:summary="@string/service_summary"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagRequestFilterKeyEvents|flagRequestAccessibilityButton|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:canRequestFilterKeyEvents="true"

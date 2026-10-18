@@ -1,6 +1,5 @@
 package com.autoscroll.app
 
-import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -19,15 +18,11 @@ class AutoScrollService : AccessibilityService() {
     private var upAt = 0L; private var upHeld = false; private var upEaten = false
     private var dnAt = 0L; private var dnHeld = false; private var dnEaten = false
 
-    private val buttonCallback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
-        override fun onClicked(controller: AccessibilityButtonController) { toggle() }
-    }
 
     override fun onServiceConnected() {
         instance = this
         scroller = Scroller(this)
         overlay = Overlay(this, scroller)
-        runCatching { accessibilityButtonController.registerAccessibilityButtonCallback(buttonCallback) }
     }
 
     fun refreshButton() { if (::overlay.isInitialized) overlay.refreshButton() }
@@ -109,7 +104,6 @@ class AutoScrollService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
-        runCatching { accessibilityButtonController.unregisterAccessibilityButtonCallback(buttonCallback) }
         if (::overlay.isInitialized) overlay.destroy()
         super.onDestroy()
     }
