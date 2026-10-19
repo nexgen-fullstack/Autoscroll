@@ -59,7 +59,10 @@ class AutoScrollService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || !::overlay.isInitialized) return
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName || isKeyboard(pkg)) return
-        android.util.Log.d("Autoscroll", "window: $pkg")
+        android.util.Log.d("Autoscroll", "window: $pkg ${event.className}")
+        // у книжці «SAA з нуля» своя автопрокрутка з тими самими правилами — наш скрол відходить убік
+        val book = isOwnScrollApp()
+        if (book != inBook) { inBook = book; overlay.setSuspended(book) }
         // «назад», «додому», «вікна», перехід в іншу програму — скрол вимикається
         overlay.stopAll()
         // серію тапів обнуляємо лише при зміні програми (або «додому»/«вікна»),
@@ -68,6 +71,16 @@ class AutoScrollService : AccessibilityService() {
         lastPkg = pkg
     }
     private var lastPkg = ""
+    private var inBook = false
+
+    /** Програми зі своєю такою самою автопрокруткою (веб-додаток книжки AWS SAA). */
+    private fun isOwnScrollApp(): Boolean = runCatching {
+        val w = windows.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+            ?: windows.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
+        val t = w?.title?.toString().orEmpty()
+        OWN_SCROLL_TITLES.any { t.contains(it, ignoreCase = true) }
+    }.getOrDefault(false)
+    private val OWN_SCROLL_TITLES = listOf("SAA з нуля", "AWS SAA")
     private val launchers by lazy {
         packageManager.queryIntentActivities(
             android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), 0

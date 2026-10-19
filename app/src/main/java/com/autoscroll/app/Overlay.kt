@@ -43,8 +43,18 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         if (pill == null && menu == null && expanded == null) ensureWatcher()
     }
 
+    /** Тимчасово сховатися (відкрита програма зі своєю автопрокруткою) і повернутися, коли її закрили. */
+    private var suspended = false
+    fun setSuspended(on: Boolean) {
+        if (suspended == on) return
+        suspended = on
+        android.util.Log.d("Autoscroll", "suspended=$on")
+        if (on) { collapseScale(false); hideMenu(); stopAll(); hideButton(); hideWatcher() }
+        else if (Prefs.active(s)) { refreshButton(); if (pill == null && menu == null && expanded == null) ensureWatcher() }
+    }
+
     fun toggle() {
-        if (!Prefs.active(s)) return
+        if (!Prefs.active(s) || suspended) return
         when {
             menu != null -> hideMenu()
             scroller.running || pill != null -> { handler.removeCallbacks(resume); scroller.stop(); hideWatcher(); showMenu() }
@@ -75,11 +85,11 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     private val longPress = Runnable { btnLong = true; btnPts.clear(); handler.removeCallbacks(flushTaps); expandScale() }
     private var btnLong = false
 
-    fun refreshButton() { if (Prefs.buttonOn(s) && Prefs.active(s)) showButton() else { hideButton(); collapseScale(false) } }
+    fun refreshButton() { if (Prefs.buttonOn(s) && Prefs.active(s) && !suspended) showButton() else { hideButton(); collapseScale(false) } }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showButton() {
-        if (button != null || expanded != null) return
+        if (button != null || expanded != null || suspended) return
         val v = text("⇅ " + Prefs.fmt(Prefs.speed(s)), 10.5f, SpeedScaleView.ACCENT, true).apply {
             background = round(0xFF1A1D23.toInt(), dp(14).toFloat(), SpeedScaleView.ACCENT)
             setPadding(dp(7), dp(3), dp(7), dp(3))
@@ -605,7 +615,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     @SuppressLint("ClickableViewAccessibility")
     private fun ensureWatcher() {
-        if (watcher != null || !Prefs.active(s)) return
+        if (watcher != null || !Prefs.active(s) || suspended) return
         val v = View(s).apply {
             setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) {
