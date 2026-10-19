@@ -61,10 +61,14 @@ class AutoScrollService : AccessibilityService() {
         if (pkg == packageName || isKeyboard(pkg)) return
         android.util.Log.d("Autoscroll", "window: $pkg ${event.className}")
         // у книжці «SAA з нуля» своя автопрокрутка з тими самими правилами — наш скрол відходить убік
-        val book = isOwnScrollApp()
-        if (book != inBook) { inBook = book; overlay.setSuspended(book) }
-        // «назад», «додому», «вікна», перехід в іншу програму — скрол вимикається
-        overlay.stopAll()
+        checkBook()
+        // список вікон оновлюється трохи пізніше за подію — перевіряємо ще раз
+        handler.postDelayed({ checkBook() }, 400)
+        // «назад», «додому», «вікна», перехід в іншу програму чи екран — скрол вимикається.
+        // Спливаючі віконця всередині тієї ж програми (меню «Копіювати» після виділення слова) — ні.
+        val cls = event.className?.toString().orEmpty()
+        val popup = (pkg == lastPkg || lastPkg.isEmpty() || cls.startsWith("android.widget.")) && !cls.endsWith("Activity") && pkg != "com.android.systemui" && !isLauncher(pkg)
+        if (!popup) overlay.stopAll()
         // серію тапів обнуляємо лише при зміні програми (або «додому»/«вікна»),
         // а не на кожне вікно всередині програми — інакше перший тап «губиться»
         if (pkg != lastPkg || pkg == "com.android.systemui" || isLauncher(pkg)) overlay.resetTaps()
@@ -72,6 +76,11 @@ class AutoScrollService : AccessibilityService() {
     }
     private var lastPkg = ""
     private var inBook = false
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private fun checkBook() {
+        val book = isOwnScrollApp()
+        if (book != inBook) { inBook = book; overlay.setSuspended(book) }
+    }
 
     /** Програми зі своєю такою самою автопрокруткою (веб-додаток книжки AWS SAA). */
     private fun isOwnScrollApp(): Boolean = runCatching {

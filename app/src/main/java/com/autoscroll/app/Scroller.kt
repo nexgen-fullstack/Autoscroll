@@ -40,7 +40,9 @@ class Scroller(private val service: AccessibilityService) {
         running = true
         generation++
         handler.removeCallbacksAndMessages(null)
-        if (stroke == null) beginStroke(generation)
+        // старий мазок міг «зависнути» після зупинки — починаємо новий (він замінює старий)
+        stroke = null
+        beginStroke(generation)
     }
 
     fun stop() {

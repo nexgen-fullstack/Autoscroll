@@ -10,7 +10,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 
-/** Горизонтальна шкала 0,25…1,75 з поділками по 0,25. Значення — будь-яке з кроком 0,01. */
+/** Горизонтальна шкала 0,10…1,75 з поділками по 0,25. Значення — будь-яке з кроком 0,01. */
 class SpeedScaleView(context: Context) : View(context) {
     var value = 1f
         set(v) { field = Prefs.clamp(v); invalidate() }
@@ -43,9 +43,12 @@ class SpeedScaleView(context: Context) : View(context) {
         val cy = height * (if (compact) 0.6f else 0.55f)
         c.drawLine(pad, cy, width - pad, cy, track)
         c.drawLine(pad, cy, xOf(value), cy, fill)
+        // мітка «0,1» на початку, далі 0,25; 0,5; 0,75 ...
+        c.drawLine(xOf(Prefs.MIN_SPEED), cy + 6 * d, xOf(Prefs.MIN_SPEED), cy + 10 * d, tick)
+        c.drawText("0,1", xOf(Prefs.MIN_SPEED), cy + 28 * d, label)
         var i = 0
         while (true) {
-            val v = Prefs.MIN_SPEED + i * 0.25f
+            val v = 0.25f + i * 0.25f
             if (v > Prefs.MAX_SPEED + 0.001f) break
             val x = xOf(v)
             val major = (i % 2 == 1) // 0.5, 1.0, 1.5 ...
@@ -56,9 +59,9 @@ class SpeedScaleView(context: Context) : View(context) {
         // проміжні поділки по 0,05
         var k = 0
         while (true) {
-            val v = Prefs.MIN_SPEED + k * 0.05f
+            val v = 0.15f + k * 0.05f
             if (v > Prefs.MAX_SPEED + 0.001f) break
-            if (k % 5 != 0) { val x = xOf(v); c.drawLine(x, cy + 6 * d, x, cy + 8 * d, tick) }
+            if ((k + 3) % 5 != 0) { val x = xOf(v); c.drawLine(x, cy + 6 * d, x, cy + 8 * d, tick) }
             k++
         }
         val tx = xOf(value)

@@ -3,12 +3,12 @@ package com.autoscroll.app
 import android.content.Context
 
 object Prefs {
-    const val MIN_SPEED = 0.25f
+    const val MIN_SPEED = 0.10f
     const val MAX_SPEED = 1.75f
     private const val FILE = "autoscroll"
 
-    fun speed(c: Context) = c.getSharedPreferences(FILE, 0).getFloat("speed", 1f).coerceIn(MIN_SPEED, MAX_SPEED)
-    fun setSpeed(c: Context, v: Float) = c.getSharedPreferences(FILE, 0).edit().putFloat("speed", v).apply()
+    fun speed(c: Context) = c.getSharedPreferences(FILE, 0).getFloat("speed2", 0.25f).coerceIn(MIN_SPEED, MAX_SPEED)
+    fun setSpeed(c: Context, v: Float) = c.getSharedPreferences(FILE, 0).edit().putFloat("speed2", v).apply()
 
     /** Швидкість 1× у dp за секунду */
     fun baseDp(c: Context) = c.getSharedPreferences(FILE, 0).getInt("base", 120)

@@ -401,6 +401,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun startScroll(down: Boolean) {
+        android.util.Log.d("Autoscroll", "startScroll down=$down speed=$speed")
         hideMenu(); hideWatcher(); paused = false
         Prefs.setSpeed(s, speed)
         scrollDown = down
@@ -422,7 +423,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     /** Будь-яка зміна вікна (кнопки «назад», «додому», «вікна») обнуляє серію тапів. */
     fun resetTaps() { taps = 0; lastTapDown = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
-    private val resume = Runnable { scroller.start(scrollDown, speed) }
+    private val resume = Runnable { android.util.Log.d("Autoscroll", "resume"); scroller.start(scrollDown, speed) }
 
     private companion object {
         const val TAP_MAX = 250L        // довше — це утримання
@@ -605,7 +606,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun onTripleOutside() {
-        android.util.Log.d("Autoscroll", "multi-tap outside")
+        android.util.Log.d("Autoscroll", "multi-tap outside menu=${menu != null} exp=${expanded != null} paused=$paused pill=${pill != null}")
         when {
             menu != null || expanded != null -> {}
             paused -> unpause()
