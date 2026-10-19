@@ -67,14 +67,17 @@ class AutoScrollService : AccessibilityService() {
         // «назад», «додому», «вікна», перехід в іншу програму чи екран — скрол вимикається.
         // Спливаючі віконця всередині тієї ж програми (меню «Копіювати» після виділення слова) — ні.
         val cls = event.className?.toString().orEmpty()
-        val popup = (pkg == lastPkg || lastPkg.isEmpty() || cls.startsWith("android.widget.")) && !cls.endsWith("Activity") && pkg != "com.android.systemui" && !isLauncher(pkg)
-        if (!popup) overlay.stopAll()
+        val sameScreen = pkg == lastPkg && cls == lastActivity
+        val popup = !cls.endsWith("Activity") && pkg != "com.android.systemui" && !isLauncher(pkg)
+        if (!popup && !sameScreen) overlay.stopAll()
+        if (cls.endsWith("Activity")) lastActivity = cls
         // серію тапів обнуляємо лише при зміні програми (або «додому»/«вікна»),
         // а не на кожне вікно всередині програми — інакше перший тап «губиться»
         if (pkg != lastPkg || pkg == "com.android.systemui" || isLauncher(pkg)) overlay.resetTaps()
         lastPkg = pkg
     }
     private var lastPkg = ""
+    private var lastActivity = ""
     private var inBook = false
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private fun checkBook() {

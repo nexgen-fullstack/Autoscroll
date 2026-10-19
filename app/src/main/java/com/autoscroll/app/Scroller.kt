@@ -69,10 +69,12 @@ class Scroller(private val service: AccessibilityService) {
         x = dm.widthPixels * X_FRACTION
         y = if (down) dm.heightPixels * 0.72f else dm.heightPixels * 0.28f
         travelled = 0f
-        val d = step()
-        val p = Path().apply { moveTo(x, y); lineTo(x, y + d) }
-        y += d
-        val s = StrokeDescription(p, 0, SEG, true)
+        // на малій швидкості палець майже стоїть, і програма бачить «утримання» (меню картинки, виділення).
+        // Тому на старті швидко зсуваємо його на відстань, після якої програма розуміє, що це прокрутка.
+        val slop = 14 * dm.density * (if (down) -1f else 1f)
+        val p = Path().apply { moveTo(x, y); lineTo(x, y + slop) }
+        y += slop
+        val s = StrokeDescription(p, 0, 40, true)
         dispatch(s, gen)
     }
 
