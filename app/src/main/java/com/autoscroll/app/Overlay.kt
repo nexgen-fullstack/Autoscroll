@@ -538,9 +538,43 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         taps = if (now - lastTapDown < MULTI_TAP + TAP_MAX) taps + 1 else 1
         lastTapDown = now
         android.util.Log.d("Autoscroll", "shield tap $taps/$tapsNeeded")
+        handler.removeCallbacks(openTap)
         if (taps >= tapsNeeded) { taps = 0; lastTapDown = 0; pause(); return true }
+        // 2 тапи (і третього не було) — відкрити те, на що натиснули: посилання, картинку
+        if (taps == 2) handler.postDelayed(openTap, MULTI_TAP + 50)
         return false
     }
+
+    // ---------------- 2 тапи під час скролу: відкрити посилання чи картинку, «Назад» — їхати далі ----------------
+    private var tapX = 0f
+    private var tapY = 0f
+    private var resumeOnBackUntil = 0L
+    private val openTap = Runnable {
+        val x = tapX; val y = tapY
+        android.util.Log.d("Autoscroll", "open tap at $x,$y")
+        taps = 0; lastTapDown = 0
+        stopAll()
+        resumeOnBackUntil = android.os.SystemClock.uptimeMillis() + 10 * 60_000L
+        ignoreOutsideUntil = android.os.SystemClock.uptimeMillis() + 700
+        // віртуальний палець уже піднято — тепер натискаємо в програмі там, де людина двічі тапнула
+        handler.postDelayed({
+            runCatching {
+                s.dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(
+                    android.accessibilityservice.GestureDescription.StrokeDescription(android.graphics.Path().apply { moveTo(x, y) }, 0, 40)).build(), null, handler)
+            }
+        }, 150)
+    }
+
+    /** Натиснули «Назад» після відкритого посилання чи картинки — скрол продовжується з того самого місця. */
+    fun onBack() {
+        if (android.os.SystemClock.uptimeMillis() > resumeOnBackUntil || !Prefs.active(s) || suspended) return
+        resumeOnBackUntil = 0
+        android.util.Log.d("Autoscroll", "back -> resume scroll")
+        handler.postDelayed({ if (pill == null && menu == null && expanded == null) { speed = Prefs.speed(s); startScroll(scrollDown) } }, 900)
+    }
+
+    /** Пішли на головний екран чи в іншу програму — після «Назад» скрол сам не вмикається. */
+    fun clearResume() { resumeOnBackUntil = 0 }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun onShieldTouch(e: MotionEvent): Boolean {
@@ -565,6 +599,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                 // цей дотик уже зарахований через перерваний жест
                 if (now - lastTapDown < DEDUPE) { downAt = now; return true }
                 dragY = e.rawY; dragging = false; dragPending = 0f
+                tapX = e.rawX; tapY = e.rawY
                 if (shieldTap(now)) return true
                 downAt = now
             }
@@ -572,7 +607,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             MotionEvent.ACTION_MOVE -> {
                 if (fingers >= 2) return true
                 val dy = e.rawY - dragY
-                if (!dragging && Math.abs(dy) > dp(10)) { dragging = true; taps = 0; lastTapDown = 0; handler.removeCallbacks(resume) }
+                if (!dragging && Math.abs(dy) > dp(10)) { dragging = true; taps = 0; lastTapDown = 0; handler.removeCallbacks(resume); handler.removeCallbacks(openTap) }
                 if (dragging) {
                     dragPending += dy; dragY = e.rawY
                     handler.removeCallbacks(flushDrag); handler.postDelayed(flushDrag, 30)

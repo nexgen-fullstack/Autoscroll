@@ -33,6 +33,8 @@ class AutoScrollService : AccessibilityService() {
     /** Гучність + і − натиснуті одночасно → відкрити/закрити коло. Окремі натискання працюють як звичайно. */
     override fun onKeyEvent(e: KeyEvent): Boolean {
         val now = SystemClock.uptimeMillis()
+        // «Назад» після відкритого двома тапами посилання — скрол їде далі (саму кнопку не перехоплюємо)
+        if (e.keyCode == KeyEvent.KEYCODE_BACK && e.action == KeyEvent.ACTION_UP && ::overlay.isInitialized) overlay.onBack()
         val isUp = e.keyCode == KeyEvent.KEYCODE_VOLUME_UP
         if (!isUp && e.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
         if (!Prefs.active(this)) return false
@@ -70,6 +72,7 @@ class AutoScrollService : AccessibilityService() {
         // серію тапів обнуляємо лише при зміні програми (або «додому»/«вікна»),
         // а не на кожне вікно всередині програми — інакше перший тап «губиться»
         if (pkg != lastPkg || pkg == "com.android.systemui" || isLauncher(pkg)) overlay.resetTaps()
+        if (isLauncher(pkg)) overlay.clearResume()
         lastPkg = pkg
     }
     private var lastPkg = ""
