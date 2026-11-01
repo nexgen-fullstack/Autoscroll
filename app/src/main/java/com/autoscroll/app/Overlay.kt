@@ -463,7 +463,13 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     }
 
     private fun startScroll(down: Boolean) {
+        // калькулятор, клавіатура, екран без прокрутки — скрол не вмикаємо
+        val svc = s as? AutoScrollService
+        if (svc != null && (svc.typingOrLocked() || !svc.canScroll())) {
+            android.util.Log.d("Autoscroll", "startScroll skipped: nothing to scroll"); hideMenu(); return
+        }
         android.util.Log.d("Autoscroll", "startScroll down=$down speed=$speed")
+        handler.removeCallbacks(guard); handler.postDelayed(guard, GUARD_EVERY)
         hideMenu(); hideWatcher(); paused = false
         Prefs.setSpeed(s, speed)
         scrollDown = down
@@ -485,6 +491,13 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     /** Будь-яка зміна вікна (кнопки «назад», «додому», «вікна») обнуляє серію тапів. */
     fun resetTaps() { taps = 0; lastTapDown = 0; lastTapUp = 0; outsideTaps = 0; lastOutside = 0 }
+    /** Під час скролу: з'явилася клавіатура або екран без прокрутки — вимикаємо скрол сам. */
+    private val guard: Runnable = Runnable {
+        if (pill == null) return@Runnable
+        val svc = s as? AutoScrollService
+        if (svc != null && (svc.typingOrLocked() || !svc.canScroll())) { android.util.Log.d("Autoscroll", "guard: stop"); stopAll() }
+        else handler.postDelayed(guard, GUARD_EVERY)
+    }
     private val resume = Runnable { android.util.Log.d("Autoscroll", "resume"); scroller.start(scrollDown, speed) }
 
     private companion object {
@@ -495,6 +508,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         const val LONG_PRESS = 550L     // утримання кнопки — маленька шкала
         const val TAP_PAUSE = 2500L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
+        const val GUARD_EVERY = 1500L   // як часто перевіряти, чи є що гортати
         const val HOLD_BEFORE_DRAG = 250L // притримати палець, щоб потім тягнути сторінку
     }
 
@@ -680,7 +694,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private fun pause() {
         handler.removeCallbacks(resume)
-        scroller.stop(); hideShields(); setPillPaused(true)
+        scroller.halt(); hideShields(); setPillPaused(true)
         paused = true
         ensureWatcher()
     }
@@ -689,7 +703,11 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         android.util.Log.d("Autoscroll", "multi-tap outside menu=${menu != null} exp=${expanded != null} paused=$paused pill=${pill != null}")
         when {
             menu != null || expanded != null -> {}
-            !Prefs.active(s) -> { Prefs.setButtonOn(s, true); wake(); speed = Prefs.speed(s); startScroll(scrollDown) }
+            !Prefs.active(s) -> {
+                // вмикаємось лише там, де є що гортати (не в калькуляторі, не під час набору тексту)
+                val svc = s as? AutoScrollService
+                if (svc == null || (!svc.typingOrLocked() && svc.canScroll())) { Prefs.setButtonOn(s, true); wake(); speed = Prefs.speed(s); startScroll(scrollDown) }
+            }
             paused -> unpause()
             pill == null -> startScroll(scrollDown)
         }
@@ -742,7 +760,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     fun stopAll() {
         handler.removeCallbacks(resume)
-        scroller.stop(); hidePill()
+        scroller.halt(); hidePill(); handler.removeCallbacks(guard)
         if (menu == null) ensureWatcher()
     }
 

@@ -115,6 +115,20 @@ class AutoScrollService : AccessibilityService() {
         "com.motorola.dialer", "com.android.incallui",
     )
 
+    /** Чи є на екрані щось, що гортається (калькулятор, набір номера — ні). Якщо не вдалося перевірити — вважаємо, що є. */
+    fun canScroll(): Boolean = runCatching {
+        val roots = windows.filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }.mapNotNull { it.root }
+        if (roots.isEmpty()) return true
+        var budget = 1500
+        fun scan(n: android.view.accessibility.AccessibilityNodeInfo?): Boolean {
+            if (n == null || budget-- <= 0) return false
+            if (n.isScrollable) return true
+            for (i in 0 until n.childCount) if (scan(n.getChild(i))) return true
+            return false
+        }
+        roots.any { scan(it) } || budget <= 0
+    }.getOrDefault(true)
+
     /** Чи відкрита зараз клавіатура (тоді тапи по екрану — це набір тексту, а не наш жест). */
     fun keyboardVisible() = runCatching {
         windows.any { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
