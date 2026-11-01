@@ -43,12 +43,60 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         if (pill == null && menu == null && expanded == null) ensureWatcher()
     }
 
-    /** Намальоване коло: увімкнено — вимкнути, вимкнено — увімкнути і одразу почати скрол. */
-    private fun onCircle() {
-        android.util.Log.d("Autoscroll", "circle active=${Prefs.active(s)}")
+    /** Намальована фігура: трикутник — увімкнути і одразу почати скрол, коло — вимкнути повністю. */
+    private fun onShape(shape: Int) {
+        android.util.Log.d("Autoscroll", "shape=$shape active=${Prefs.active(s)}")
         if (suspended) return
-        if (Prefs.active(s)) shutdown()
-        else { Prefs.setButtonOn(s, true); wake(); speed = Prefs.speed(s); startScroll(scrollDown) }
+        if (shape == CIRCLE && Prefs.active(s)) shutdown()
+        else if (shape == TRIANGLE && !Prefs.active(s)) { Prefs.setButtonOn(s, true); wake(); speed = Prefs.speed(s); startScroll(scrollDown) }
+    }
+
+    /** Трикутник, коло чи нічого. Трикутник перевіряємо першим: він теж «обходить» центр. */
+    private fun shape(pts: List<android.graphics.PointF>): Int = when {
+        isTriangle(pts) -> TRIANGLE
+        isCircle(pts) -> CIRCLE
+        else -> NONE
+    }
+
+    /**
+     * Трикутник: замкнена фігура, яка після спрощення (Рамер — Дуглас — Пекер)
+     * має рівно три кути; майже прямі «кути» не рахуються.
+     */
+    private fun isTriangle(pts: List<android.graphics.PointF>): Boolean {
+        if (pts.size < 8) return false
+        val minX = pts.minOf { it.x }; val maxX = pts.maxOf { it.x }
+        val minY = pts.minOf { it.y }; val maxY = pts.maxOf { it.y }
+        val w = maxX - minX; val h = maxY - minY
+        if (w < dp(50) || h < dp(50)) return false
+        val diag = Math.hypot(w.toDouble(), h.toDouble()).toFloat()
+        val f = pts.first(); val l = pts.last()
+        if (Math.hypot((l.x - f.x).toDouble(), (l.y - f.y).toDouble()) > diag * 0.35) return false
+        val far = pts.indices.maxBy { Math.hypot((pts[it].x - f.x).toDouble(), (pts[it].y - f.y).toDouble()) }
+        val eps = diag * 0.09f
+        val poly = (rdp(pts.subList(0, far + 1), eps).dropLast(1) + rdp(pts.subList(far, pts.size), eps)).dropLast(1)
+        // прибираємо вершини, де лінія майже не повертає
+        val corners = poly.indices.filter { i ->
+            val a = poly[(i - 1 + poly.size) % poly.size]; val b = poly[i]; val c = poly[(i + 1) % poly.size]
+            val v1x = a.x - b.x; val v1y = a.y - b.y; val v2x = c.x - b.x; val v2y = c.y - b.y
+            val cos = (v1x * v2x + v1y * v2y) / (Math.hypot(v1x.toDouble(), v1y.toDouble()) * Math.hypot(v2x.toDouble(), v2y.toDouble()) + 1e-6)
+            cos > -0.82 // кут менший за ~145°
+        }
+        return corners.size == 3
+    }
+
+    private fun rdp(pts: List<android.graphics.PointF>, eps: Float): List<android.graphics.PointF> {
+        if (pts.size < 3) return pts
+        val a = pts.first(); val b = pts.last()
+        val len = Math.hypot((b.x - a.x).toDouble(), (b.y - a.y).toDouble())
+        var idx = 0; var best = 0.0
+        for (i in 1 until pts.size - 1) {
+            val p = pts[i]
+            val d = if (len < 1e-3) Math.hypot((p.x - a.x).toDouble(), (p.y - a.y).toDouble())
+                else Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / len
+            if (d > best) { best = d; idx = i }
+        }
+        if (best <= eps) return listOf(a, b)
+        return rdp(pts.subList(0, idx + 1), eps).dropLast(1) + rdp(pts.subList(idx, pts.size), eps)
     }
 
     /** Кнопка «Закрити»: вимкнути сервіс на рівні телефона. Повернути — у Спеціальних можливостях. */
@@ -137,7 +185,8 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                 MotionEvent.ACTION_MOVE -> path += android.graphics.PointF(e.rawX, e.rawY)
                 MotionEvent.ACTION_UP -> {
                     path += android.graphics.PointF(e.rawX, e.rawY)
-                    if (isCircle(path)) onCircle() else replayStroke(path.toList(), e.eventTime - downAt)
+                    val sh = shape(path)
+                    if (sh != NONE) onShape(sh) else replayStroke(path.toList(), e.eventTime - downAt)
                 }
             }
             true
@@ -244,8 +293,8 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                     handler.removeCallbacks(longPress)
                     v.alpha = 0.35f
                     btnTouchAt = android.os.SystemClock.uptimeMillis()
-                    if (moved && e.actionMasked == MotionEvent.ACTION_UP && isCircle(path)) {
-                        p.x = px; p.y = py; runCatching { wm.updateViewLayout(v, p) }; onCircle()
+                    if (moved && e.actionMasked == MotionEvent.ACTION_UP && shape(path) != NONE) {
+                        p.x = px; p.y = py; runCatching { wm.updateViewLayout(v, p) }; onShape(shape(path))
                     } else if (moved) { keepOffLane(v, p); runCatching { wm.updateViewLayout(v, p) }; Prefs.setButtonPos(s, p.x, p.y) }
                     else if (e.actionMasked == MotionEvent.ACTION_UP && !btnLong) onButtonTap(e.rawX, e.rawY)
                 }
@@ -295,6 +344,9 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             setPadding(dp(8), dp(8), dp(8), dp(2))
             elevation = dp(16).toFloat()
         }
+        // смужка-ручка: за неї (і за будь-яке вільне місце) меню тягнуть по екрану
+        box.addView(View(s).apply { background = round(0x55FFFFFF, dp(2).toFloat()) },
+            LinearLayout.LayoutParams(dp(36), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; setMargins(0, 0, 0, dp(7)) })
         // зверху: ▲ Вгору і ▼ Вниз
         val row = LinearLayout(s).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         fun dirBtn(t: String, down: Boolean) = text(t, 13f, 0xFF0E1013.toInt(), true).apply {
@@ -323,13 +375,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         }
         box.addView(closeAll, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { setMargins(0, 0, 0, dp(6)) })
 
-        // тап будь-де поза шкалою — згорнути її назад у кнопку
-        box.setOnTouchListener { _, e ->
-            if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) collapseScale(true)
-            false
-        }
-
-        val w = dp(240); val h = dp(175)
+        val w = dp(240); val h = dp(190)
         val sw = s.resources.displayMetrics.widthPixels; val sh = screenH()
         val p = params(w, WRAP_CONTENT, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH).apply {
@@ -338,6 +384,20 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             // під кнопкою, а якщо внизу не вміщається — над нею
             y = (if (by + bh + dp(6) + h < sh - navBarH()) by + bh + dp(6) else by - h - dp(6))
                 .coerceIn(dp(24), (sh - navBarH() - h).coerceAtLeast(dp(24)))
+        }
+        // тап поза меню — згорнути його назад у кнопку; палець на вільному місці меню — перетягнути меню
+        var rx = 0f; var ry = 0f; var px = 0; var py = 0
+        box.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_OUTSIDE -> collapseScale(true)
+                MotionEvent.ACTION_DOWN -> { rx = e.rawX; ry = e.rawY; px = p.x; py = p.y }
+                MotionEvent.ACTION_MOVE -> {
+                    p.x = (px + e.rawX - rx).toInt().coerceIn(0, (sw - box.width).coerceAtLeast(0))
+                    p.y = (py + e.rawY - ry).toInt().coerceIn(0, (sh - box.height).coerceAtLeast(0))
+                    runCatching { wm.updateViewLayout(box, p) }
+                }
+            }
+            true
         }
         runCatching { wm.addView(box, p); expanded = box }
     }
@@ -543,6 +603,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         const val TAP_PAUSE = 2500L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
         const val HOLD_BEFORE_DRAG = 250L // притримати палець, щоб потім тягнути сторінку
+        const val NONE = 0; const val CIRCLE = 1; const val TRIANGLE = 2
     }
 
     init {
@@ -583,10 +644,10 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { shieldPath.clear(); shieldPath += android.graphics.PointF(e.rawX, e.rawY) }
             MotionEvent.ACTION_MOVE -> shieldPath += android.graphics.PointF(e.rawX, e.rawY)
-            MotionEvent.ACTION_UP -> if (fingers <= 1 && isCircle(shieldPath)) {
+            MotionEvent.ACTION_UP -> if (fingers <= 1 && shape(shieldPath) == CIRCLE) {
                 shieldPath.clear(); fingers = 0; dragging = false
                 handler.removeCallbacks(flushDrag); handler.removeCallbacks(twoFingerStop)
-                onCircle(); return true
+                onShape(CIRCLE); return true
             }
         }
         when (e.actionMasked) {
