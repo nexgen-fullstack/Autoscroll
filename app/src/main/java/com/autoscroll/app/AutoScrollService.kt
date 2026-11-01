@@ -61,6 +61,8 @@ class AutoScrollService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName || isKeyboard(pkg)) return
         android.util.Log.d("Autoscroll", "window: $pkg ${event.className}")
+        // соцмережі (стрічки відео й фото) — Автоскрол там зовсім відсутній: ні кнопки, ні жестів
+        if (pkg != "com.android.systemui") overlay.setSuspended(pkg in NO_SCROLL_APPS)
         // «назад», «додому», «вікна», перехід в іншу програму чи екран — скрол вимикається.
         // Спливаючі віконця всередині тієї ж програми (меню «Копіювати» після виділення слова) — ні.
         val cls = event.className?.toString().orEmpty()
@@ -77,6 +79,13 @@ class AutoScrollService : AccessibilityService() {
     private var lastPkg = ""
     private var lastActivity = ""
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val NO_SCROLL_APPS = setOf(
+        "com.instagram.android", "com.instagram.barcelona",                  // Instagram, Threads
+        "com.facebook.katana", "com.facebook.lite",                          // Facebook
+        "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",              // TikTok
+        "com.twitter.android",                                               // X
+        "com.google.android.youtube", "com.snapchat.android", "com.pinterest",
+    )
     private val launchers by lazy {
         packageManager.queryIntentActivities(
             android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), 0
