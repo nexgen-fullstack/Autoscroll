@@ -509,7 +509,6 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
         const val TAP_PAUSE = 2500L     // пауза після одного тапу
         const val HOLD_RESUME = 150L    // продовжити після відпускання
         const val GUARD_EVERY = 1500L   // як часто перевіряти, чи є що гортати
-        const val HOLD_BEFORE_DRAG = 250L // притримати палець, щоб потім тягнути сторінку
     }
 
     init {
@@ -565,7 +564,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
                 if (fingers >= 2) { checkTwoFingers(); return true }
                 // цей дотик уже зарахований через перерваний жест
                 if (now - lastTapDown < DEDUPE) { downAt = now; return true }
-                dragY = e.rawY; dragX = e.rawX; dragging = false; dragPending = 0f; freeMove = false
+                dragY = e.rawY; dragging = false; dragPending = 0f
                 if (shieldTap(now)) return true
                 downAt = now
             }
@@ -573,11 +572,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             MotionEvent.ACTION_MOVE -> {
                 if (fingers >= 2) return true
                 val dy = e.rawY - dragY
-                // тягнути сторінку — лише якщо палець спершу притримали; швидкий рух одразу — це малювання кола
-                if (!dragging && !freeMove && (Math.abs(dy) > dp(10) || Math.abs(e.rawX - dragX) > dp(10))) {
-                    if (e.eventTime - e.downTime >= HOLD_BEFORE_DRAG) { dragging = true; taps = 0; lastTapDown = 0; handler.removeCallbacks(resume) }
-                    else { freeMove = true; taps = 0; lastTapDown = 0 }
-                }
+                if (!dragging && Math.abs(dy) > dp(10)) { dragging = true; taps = 0; lastTapDown = 0; handler.removeCallbacks(resume) }
                 if (dragging) {
                     dragPending += dy; dragY = e.rawY
                     handler.removeCallbacks(flushDrag); handler.postDelayed(flushDrag, 30)
@@ -606,8 +601,6 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
 
     private val shieldPath = mutableListOf<android.graphics.PointF>()
     private var dragY = 0f
-    private var dragX = 0f
-    private var freeMove = false
     private var dragging = false
     private var dragPending = 0f
     private var dragBusyUntil = 0L
