@@ -34,7 +34,6 @@ class AutoScrollService : AccessibilityService() {
     override fun onKeyEvent(e: KeyEvent): Boolean {
         val now = SystemClock.uptimeMillis()
         // «Назад» після відкритого двома тапами посилання — скрол їде далі (саму кнопку не перехоплюємо)
-        if (e.keyCode == KeyEvent.KEYCODE_BACK && e.action == KeyEvent.ACTION_UP && ::overlay.isInitialized) overlay.onBack()
         val isUp = e.keyCode == KeyEvent.KEYCODE_VOLUME_UP
         if (!isUp && e.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
         if (!Prefs.active(this)) return false
@@ -100,6 +99,28 @@ class AutoScrollService : AccessibilityService() {
         "com.motorola.dialer", "com.android.incallui",
     )
 
+    /**
+     * Маленький знімок екрана (40×88 точок) — щоб побачити, що відкрилося і що людина повернулася.
+     * Якщо знімок недоступний (Android < 11 або помилка) — null.
+     */
+    fun thumb(cb: (IntArray?) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 30) { cb(null); return }
+        runCatching {
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(r: ScreenshotResult) {
+                    val px = runCatching {
+                        val hw = android.graphics.Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)!!
+                        val small = android.graphics.Bitmap.createScaledBitmap(hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false), 40, 88, true)
+                        IntArray(40 * 88).also { small.getPixels(it, 0, 40, 0, 0, 40, 88) }
+                    }.getOrNull()
+                    runCatching { r.hardwareBuffer.close() }
+                    cb(px)
+                }
+                override fun onFailure(code: Int) { cb(null) }
+            })
+        }.onFailure { cb(null) }
+    }
+
     /** Чи є на екрані щось, що гортається (калькулятор, набір номера — ні). Якщо не вдалося перевірити — вважаємо, що є. */
     fun canScroll(): Boolean = runCatching {
         val roots = windows.filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }.mapNotNull { it.root }
@@ -107,7 +128,8 @@ class AutoScrollService : AccessibilityService() {
         var budget = 1500
         fun scan(n: android.view.accessibility.AccessibilityNodeInfo?): Boolean {
             if (n == null || budget-- <= 0) return false
-            if (n.isScrollable) return true
+            // вебсторінка (Chrome, книжки-додатки) — гортається, навіть якщо прапорця прокрутки ще нема
+            if (n.isScrollable || n.className?.toString()?.contains("WebView") == true) return true
             for (i in 0 until n.childCount) if (scan(n.getChild(i))) return true
             return false
         }

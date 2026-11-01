@@ -469,6 +469,7 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
             android.util.Log.d("Autoscroll", "startScroll skipped: nothing to scroll"); hideMenu(); return
         }
         android.util.Log.d("Autoscroll", "startScroll down=$down speed=$speed")
+        openSince = 0; handler.removeCallbacks(watchReturn)
         handler.removeCallbacks(guard); handler.postDelayed(guard, GUARD_EVERY)
         hideMenu(); hideWatcher(); paused = false
         Prefs.setSpeed(s, speed)
@@ -548,33 +549,68 @@ class Overlay(private val s: AccessibilityService, private val scroller: Scrolle
     // ---------------- 2 тапи під час скролу: відкрити посилання чи картинку, «Назад» — їхати далі ----------------
     private var tapX = 0f
     private var tapY = 0f
-    private var resumeOnBackUntil = 0L
+    private var openShot: IntArray? = null
+    private var openSince = 0L
+    private var openChanged = false
     private val openTap = Runnable {
         val x = tapX; val y = tapY
         android.util.Log.d("Autoscroll", "open tap at $x,$y")
         taps = 0; lastTapDown = 0
         stopAll()
-        resumeOnBackUntil = android.os.SystemClock.uptimeMillis() + 10 * 60_000L
-        ignoreOutsideUntil = android.os.SystemClock.uptimeMillis() + 700
-        // віртуальний палець уже піднято — тепер натискаємо в програмі там, де людина двічі тапнула
+        openSince = android.os.SystemClock.uptimeMillis(); openChanged = false; openShot = null
+        ignoreOutsideUntil = openSince + 900
+        // сторінка зупинилася — запам'ятовуємо, як виглядає екран, і натискаємо там, де людина двічі тапнула
         handler.postDelayed({
-            runCatching {
-                s.dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(
-                    android.accessibilityservice.GestureDescription.StrokeDescription(android.graphics.Path().apply { moveTo(x, y) }, 0, 40)).build(), null, handler)
+            val svc = s as? AutoScrollService
+            val tap = {
+                runCatching {
+                    s.dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(
+                        android.accessibilityservice.GestureDescription.StrokeDescription(android.graphics.Path().apply { moveTo(x, y) }, 0, 40)).build(), null, handler)
+                }
+                handler.removeCallbacks(watchReturn); handler.postDelayed(watchReturn, 900)
             }
-        }, 150)
+            if (svc == null) tap() else svc.thumb { openShot = it; tap() }
+        }, 400)
     }
 
-    /** Натиснули «Назад» після відкритого посилання чи картинки — скрол продовжується з того самого місця. */
-    fun onBack() {
-        if (android.os.SystemClock.uptimeMillis() > resumeOnBackUntil || !Prefs.active(s) || suspended) return
-        resumeOnBackUntil = 0
-        android.util.Log.d("Autoscroll", "back -> resume scroll")
-        handler.postDelayed({ if (pill == null && menu == null && expanded == null) { speed = Prefs.speed(s); startScroll(scrollDown) } }, 900)
+    /** Яка частка екрана відрізняється між двома маленькими знімками (0…1). */
+    private fun shotDiff(a: IntArray, b: IntArray): Float {
+        var n = 0
+        for (i in a.indices) {
+            val p = a[i]; val q = b[i]
+            val d = Math.abs((p shr 16 and 255) - (q shr 16 and 255)) + Math.abs((p shr 8 and 255) - (q shr 8 and 255)) + Math.abs((p and 255) - (q and 255))
+            if (d > 60) n++
+        }
+        return n.toFloat() / a.size
     }
 
-    /** Пішли на головний екран чи в іншу програму — після «Назад» скрол сам не вмикається. */
-    fun clearResume() { resumeOnBackUntil = 0 }
+    /**
+     * Стежимо, що відкрилося і коли людина повернулася: екран знову такий, як до двох тапів
+     * (картинку закрили, з посилання повернулися «Назад») — скрол їде далі з того самого місця.
+     * Якщо за 1,5 с нічого не відкрилося — два тапи були просто по тексту, скрол продовжується одразу.
+     */
+    private val watchReturn: Runnable = Runnable {
+        if (openSince == 0L || !Prefs.active(s) || suspended || pill != null || menu != null || expanded != null) { openSince = 0; return@Runnable }
+        val svc = s as? AutoScrollService ?: return@Runnable
+        val base = openShot ?: run { openSince = 0; return@Runnable } // знімків нема — сам не продовжуємо
+        svc.thumb { now ->
+            if (openSince == 0L) return@thumb
+            val t = android.os.SystemClock.uptimeMillis()
+            if (now == null || t - openSince > 10 * 60_000L) { openSince = 0; return@thumb }
+            val d = shotDiff(base, now)
+            val same = d < 0.04f
+            android.util.Log.d("Autoscroll", "watch diff=$d changed=$openChanged")
+            if (d > 0.12f) openChanged = true
+            if ((same && openChanged) || (!openChanged && (same && t - openSince > 1500 || t - openSince > 3000))) {
+                openSince = 0
+                android.util.Log.d("Autoscroll", "returned -> resume scroll")
+                speed = Prefs.speed(s); startScroll(scrollDown)
+            } else handler.postDelayed(watchReturn, 500)
+        }
+    }
+
+    /** Пішли на головний екран — скрол сам більше не вмикається. */
+    fun clearResume() { openSince = 0; handler.removeCallbacks(watchReturn) }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun onShieldTouch(e: MotionEvent): Boolean {
